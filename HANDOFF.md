@@ -56,7 +56,7 @@ has to fill in the airports, which may live on another instance of your service 
 - `200` with the JSON above.
 - `404` **only when no instance of your service has it.** Flight Operations treats 404 as final and does not try your
   other instance. So an instance that doesn't hold the route/airport locally must ask its peer before answering 404
-  (PL3 p.11).
+  (PL3 p.11). With a copy of each item on another instance, a stopped instance's data is still found there.
 - Anything else (5xx, timeout, connection refused) makes Flight Operations retry on your other instance
   (round-robin with failover, then circuit breaker).
 - `501` (what the skeleton returns now) shows up to users as `503 "... does not implement GET /internal/routes/...
@@ -100,15 +100,24 @@ Each service has its own database, and cross-references are by ID only.
 
 ## 4. Distribution: how Flight Operations did it (copy what you need)
 
-The team decision was to follow PL3 (week 3): **2 instances per service, each with its own database, the data split
-between them, no replication.** Paths below are in `flight-operations-service/src/main/java/pt/isep/sidis/flightops/`.
+The assignment asks for more than the week-3 practical session (where each item lives on one instance only): data
+split between the instances **and** "redundancy-based fault tolerance" (P1 p.2). So: **2 instances per service, each
+with its own database, the data split between them, and every item also kept on one other instance** (owner +
+backup). When an instance is stopped, its data must still be readable from the other one. Changes reach the copy
+shortly after (eventual consistency is fine: AP in CAP), and not every instance needs everything.
+
+Paths below are in `flight-operations-service/src/main/java/pt/isep/sidis/flightops/`. The replication files are in
+pull request #2 (branch `feature/replication`) until it is merged into `main`.
 
 | Requirement | Flight Operations solution | Files to look at |
 |---|---|---|
 | Hardcoded peer list (PL3 p.12) | `flightops.cluster=instance1=url,instance2=url`, the same list on every instance | `cluster/Cluster.java`, `application-instance1.properties` |
-| Who stores what (P1 p.15) | rendezvous hashing on the key: every instance computes the same owner, with no coordination | `Cluster.ownerOf` |
+| Who stores what (P1 p.15) | rendezvous hashing on the key: every instance computes the same ranking of the instances, with no coordination; the first is the owner, the second keeps a copy | `Cluster.ownerOf`, `Cluster.replicasOf` |
 | Not found locally → ask peers (PL3 p.11) | public `/api/...` endpoint looks locally, then asks peers on `/internal/...` endpoints that **only** look locally (no forwarding loops) | `peers/PeerClient.java`, `api/InternalFlightController.java` |
 | Peer down (PL3 p.12, p.14) | timeouts, retries with backoff for GETs, circuit breaker, health checks every 5 s | `resilience/*` |
+| Copies (P1 p.2, redundancy) | a change and its "copy it to instance X" task are saved in one transaction (outbox), sent right after the commit and retried while X is down; every item has a `revision`, the newest copy wins | `replication/*`, `domain/ReplicationTask.java`, `revision` in `domain/ScheduledFlight.java` |
+| Catch-up after a restart | at startup (before reporting ready) and every 60 s each instance fetches the items it should hold from its peers, so it recovers even with an empty database | `replication/ReplicaSync.java`, `api/InternalReplicaController.java` |
+| Proving it | 3 real instances in one test: stop one, read its data from the copy, restart it empty, check it caught up | `ReplicationIntegrationTest` (in `src/test`) |
 | Pooled HTTP client, TLS | Apache HttpClient 5 via `RestClient` | `clients/HttpClientFactory.java` (+ `httpclient5` in `pom.xml`) |
 | Tracing (PL3 p.19) | `X-Request-Id` passed between services, `[instance] [requestId]` in every log line | `common/tracing/*`, `logging.pattern.console` |
 
@@ -120,6 +129,7 @@ What to shard by is your call. Two options:
   remote.
 
 Either is fine as long as you can explain it at the assessment. Write the choice down in your architecture doc.
+Whichever you choose, keep each item on its owner and one backup.
 
 ## 5. Security (P1 p.16)
 
@@ -148,6 +158,8 @@ Either is fine as long as you can explain it at the assessment. Write the choice
 - [ ] Bootstrap the routes and airports from section 2
 - [ ] Port `airportmanagement` and the route parts of `flightroutes`, with no imports of other modules
 - [ ] 2 instances, data sharded, peers asked when data isn't local
+- [ ] Each item kept on 2 instances (owner + backup): stop one instance → its data is still readable from the other,
+      and it catches up when it restarts
 - [ ] Timeouts, retries and circuit breaker on peer calls
 - [ ] TLS 1.3 profile, encryption at rest
 - [ ] PostgreSQL per instance
