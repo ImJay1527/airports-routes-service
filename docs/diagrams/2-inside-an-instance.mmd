@@ -1,0 +1,51 @@
+%% C4 Level 3 Component Diagram: Inside an airports-routes-service instance
+flowchart TB
+    req(["HTTP Request"])
+
+    subgraph F["Security & Tracing Filters"]
+        direction LR
+        f1["RequestTracingFilter<br/>X-Request-Id, X-Instance"] --> f2["AuthTokenFilter<br/>Validate JWT & Extract Roles"] --> f3["AuditLogFilter<br/>Audit logging (user, uri, status)"]
+    end
+
+    subgraph C["Controllers"]
+        direction LR
+        c1["AirportController<br/>/api/airports/**<br/>Roles: BACKOFFICE_OPERATOR"]
+        c2["FlightRouteController<br/>/api/flight-routes/**<br/>Roles: ATCC, BACKOFFICE"]
+        c3["InternalAirportsRoutesController<br/>/internal/**<br/>Role: SERVICE"]
+    end
+
+    subgraph S["Domain Services & Clustering"]
+        direction LR
+        s1["AirportService<br/>Airports, Runways, Certifications"]
+        s2["FlightRouteService<br/>Routes, Distances, Strategies"]
+        p["PeerClient<br/>Queries peer replicas for missing shards"]
+        cl["Cluster<br/>Peer URLs & topology"]
+    end
+
+    subgraph R["Resilience Engine"]
+        direction LR
+        r1["ResilientCaller<br/>Retries + Exponential Backoff"] --> r2["EndpointHealth<br/>Circuit Breaker"]
+    end
+
+    subgraph P["Persistence Layer"]
+        direction LR
+        repoA[("AirportRepository")]
+        repoR[("FlightRouteRepository")]
+        db[("Dedicated DB<br/>(H2 / PostgreSQL)")]
+        repoA --- db
+        repoR --- db
+    end
+
+    req --> F --> C
+    c1 --> s1
+    c2 --> s2
+    c3 --> s1
+    c3 --> s2
+    c3 --> p
+    s1 --> repoA
+    s2 --> repoR
+    s1 --> p
+    s2 --> p
+    p --> cl
+    p --> R
+    R -->|"HTTPS + SERVICE JWT<br/>Forward to peer replica"| peerOut(["Peer Replica Instance"])

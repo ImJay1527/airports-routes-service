@@ -1,0 +1,23 @@
+%% Sequence Diagram: Fault Tolerance, Circuit Breaker, and Peer Catch-up
+sequenceDiagram
+    participant C as Caller (Flight Ops / Client)
+    participant A1 as airports-1 (Active Replica)
+    participant A2 as airports-2 (Failing / Recovering Replica)
+
+    Note over A2: airports-2 crashes / becomes unreachable
+    C->>A1: GET /internal/airports/OPO
+    Note over A1: OPO is stored locally on airports-1 (owner / backup copy)
+    A1-->>C: 200 OK (Zero downtime for caller)
+
+    C->>A1: GET /internal/airports/MAD (Owned by airports-2)
+    A1-xA2: Attempt 1: Connection Refused (timeout)
+    Note over A1: Retry with exponential backoff
+    A1-xA2: Attempts 2 & 3: Failures threshold exceeded
+    Note over A1: Circuit Breaker opens (state: OPEN for 10s)
+    
+    Note over A1: Falls back to backup copy if replicated, or returns graceful 503 / 404
+
+    Note over A2: airports-2 process restarts
+    A1->>A2: Periodic Health Probe GET /actuator/health
+    A2-->>A1: 200 UP (Health restored)
+    Note over A1: Circuit Breaker resets (state: CLOSED)
