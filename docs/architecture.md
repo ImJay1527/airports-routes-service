@@ -59,9 +59,28 @@ The architecture addresses functional and non-functional requirements categorize
 
 ---
 
-## 4. C4 Architecture Diagrams
+## 4. C4+1 Architectural Views
 
-### 4.1. Level 2: Container Diagram (System Distributed Topology)
+The system architecture is structured according to Philippe Kruchten's **4+1 View Model** (IEEE Software, 1995) adapted for distributed systems using the **C4 hierarchical abstraction**:
+
+```
+                  +-----------------------------------+
+                  |         4+1 View Model            |
+                  +-----------------------------------+
+                                    |
+          +-------------------------+-------------------------+
+          |                         |                         |
+   [Logical View]            [Process View]            [Deployment View]
+   C4 Level 2 Container      Dynamic Scenarios (+1)     Physical/Virtual Nodes
+   C4 Level 3 Component      Forwarding & Sagas         Ports & Network IPs
+```
+
+---
+
+### 4.1. View 1: Logical View
+
+#### 4.1.1. C4 Level 2: Container Diagram (System Distributed Topology)
+Visualizes system actors, boundary protocols, the 3 microservices with their cloned instances, and dedicated database containers.
 
 ```mermaid
 %% C4 Level 2 Container Diagram
@@ -105,9 +124,8 @@ flowchart LR
     class db1,db2 db
 ```
 
----
-
-### 4.2. Level 3: Component Diagram (Inside an `airports-routes-service` Instance)
+#### 4.1.2. C4 Level 3: Component Diagram (Inside an `airports-routes-service` Instance)
+Details the internal building blocks of an instance, illustrating the security/tracing filter chain, controllers, domain services, persistence repositories, and peer client.
 
 ```mermaid
 %% C4 Level 3 Component Diagram
@@ -157,10 +175,11 @@ flowchart TB
 
 ---
 
-## 5. C4+1 Process View Scenarios
+### 4.2. View 2: Process View (The "+1" Dynamic Distributed Scenarios)
 
-### Scenario 1: Unicast Peer Forwarding on Local Miss (Component Cloning)
+The "+1" scenarios make runtime interactions, failure recovery, and distributed coordination explicit.
 
+#### Scenario 2.1: Request Routing & Unicast Peer Forwarding with Failure Handling
 When `flight-operations-service` queries `airports-1` for airport `MAD`, but `MAD` is stored on clone `airports-2`:
 
 ```mermaid
@@ -181,18 +200,15 @@ sequenceDiagram
 
     A1->>A2: GET /internal/airports/MAD<br/>Authorization: Bearer SERVICE_JWT<br/>X-Forwarded-From: airports-1<br/>X-Request-Id: req-101
     A2->>DB2: findByIataCode_Code("MAD")
-    DB2-->>A2: Airport entity [MAD, OPERATIONAL, [A320neo, B737]]
+    DB2-->>A2: Airport entity [MAD, OPERATIONAL, [A320neo, 737 MAX]]
     A2-->>A1: 200 OK AirportInfo JSON<br/>X-Data-Source: local<br/>X-Instance: airports-2
     
     Note over A1: Attach lineage header X-Data-Source: peer
     A1-->>FO: 200 OK AirportInfo JSON<br/>X-Data-Source: peer<br/>X-Instance: airports-1<br/>X-Request-Id: req-101
 ```
 
----
-
-### Scenario 2: Replica Failure & Resilient Fallback
-
-When a peer clone is offline or unreachable, the system fails gracefully without thread starvation or cascading failure:
+#### Scenario 2.2: Node Failure & Resilient Recovery (Timeout, Circuit Breaking)
+When a peer clone crashes or becomes unreachable, the calling instance protects its own thread pool and gracefully terminates the query:
 
 ```mermaid
 %% Sequence Diagram: Fault Tolerance & Peer Unreachability
@@ -208,20 +224,17 @@ sequenceDiagram
     DB1-->>A1: Optional.empty() (Local Miss)
 
     A1-xA2: GET /internal/airports/FAO (Peer Unreachable / Timeout)
-    Note over A1: PeerClient catches timeout (1500ms)<br/>Logs warning with [req-202]<br/>Returns Optional.empty()
+    Note over A1: HttpPeerClient catches timeout (1500ms)<br/>Logs warning with [req-202]<br/>Returns Optional.empty()
 
     A1-->>FO: 404 Not Found<br/>X-Instance: airports-1<br/>X-Request-Id: req-202
     Note over FO: Caller receives clear, timely 404.<br/>No hung threads or thread pool exhaustion.
 ```
 
----
-
-### Scenario 3: Inter-Service Command Coordination (Flight Validation)
-
-How `flight-operations-service` coordinates synchronous command checks across `airports-routes-service` and `aircraft-maintenance-service`:
+#### Scenario 2.3: Distributed Saga with Compensating Actions
+Visualizes distributed transaction coordination across segregated services. When scheduling a flight, atomicity is maintained synchronously with compensating actions upon failure:
 
 ```mermaid
-%% Sequence Diagram: Inter-Service Command Coordination
+%% C4+1 Process View: Distributed Saga Pattern with Compensations
 sequenceDiagram
     autonumber
     participant Op as Flight Dispatcher
@@ -229,23 +242,144 @@ sequenceDiagram
     participant AR as airports-routes-service
     participant AM as aircraft-maintenance-service
 
+    Note over Op,FO: Step 1: Initiate Booking Saga
     Op->>FO: POST /api/flights (Create Flight Plan)<br/>Route: route-opo-lis, Aircraft: CS-TNM
-    FO->>AR: GET /internal/routes/route-opo-lis (Verify Route & Distance)
-    AR-->>FO: 200 OK [distance: 275km, requiredModel: A320neo]
     
-    FO->>AM: GET /internal/aircraft/CS-TNM (Verify Airworthiness & Model)
-    AM-->>FO: 200 OK [model: A320neo, status: AIRWORTHY]
+    Note over FO: Local Step: Reserve Provisional Flight Slot (State: PENDING)
+    
+    Note over FO,AR: Step 2: Validate Route & Airports
+    FO->>AR: GET /internal/routes/route-opo-lis<br/>Authorization: Bearer SERVICE_JWT
+    AR-->>FO: 200 OK [distance: 277km, status: ACTIVE, requiredModel: A320neo]
+    
+    FO->>AR: GET /internal/airports/LIS<br/>Authorization: Bearer SERVICE_JWT
+    AR-->>FO: 200 OK [status: OPERATIONAL, certifications: [A320neo, 737 MAX]]
 
-    FO->>AR: GET /internal/airports/LIS (Verify Destination Airport Certification)
-    AR-->>FO: 200 OK [status: OPERATIONAL, certifications: [A320neo, B737]]
-
-    Note over FO: All pre-conditions verified synchronously.<br/>Dispatch flight.
-    FO-->>Op: 201 Created [Flight #AF124 planned]
+    Note over FO,AM: Step 3: Validate Aircraft Airworthiness
+    FO->>AM: GET /internal/aircraft/CS-TNM<br/>Authorization: Bearer SERVICE_JWT
+    
+    alt Aircraft Maintenance Check Fails (Unavailable / Maintenance Required)
+        AM-->>FO: 422 Unprocessable Entity [status: UNDER_MAINTENANCE]
+        Note over FO: SAGA FAILURE TRIGGERED!<br/>Execute Compensating Transaction:
+        Note over FO: Compensator C1: Cancel Provisional Reservation<br/>Update Flight State -> CANCELLED
+        FO-->>Op: 422 Unprocessable Entity<br/>{"error": "Flight planning rejected: Aircraft CS-TNM under maintenance"}
+    else Aircraft Airworthy & Validated
+        AM-->>FO: 200 OK [model: A320neo, status: AIRWORTHY, maxRange: 6100km]
+        Note over FO: All Distributed Invariants Satisfied.<br/>Commit Transaction: Update Flight State -> CONFIRMED
+        FO-->>Op: 201 Created [Flight #AF124 Scheduled]
+    end
 ```
 
 ---
 
-## 6. Verification & Automated Test Coverage
+### 4.3. View 3: Deployment View (Physical/Virtual Nodes & Network Topology)
+
+Shows the deployment architecture across container environments, detailing reverse proxy ingress, container IP assignments on Docker bridge `172.20.0.0/16`, listening ports, and dedicated database volumes:
+
+```mermaid
+%% C4 Deployment View: Physical / Virtual Nodes & Network Topology
+flowchart TB
+    subgraph ExtNet["External Client Network"]
+        user["Operator / ATCC Client<br/>Browser / Postman"]
+    end
+
+    subgraph Host["Docker Host / Virtual Machine Environment (172.20.0.0/16)"]
+        subgraph IngressTier["Traffic Distribution Layer"]
+            lb["Nginx Reverse Proxy / Load Balancer<br/>Container: aisafe-lb<br/>IP: 172.20.0.2<br/>Port: 8443 (HTTPS Ingress)"]
+        end
+
+        subgraph AppTier["Application Tier (Stateless Clones)"]
+            subgraph ARCluster["airports-routes Cluster"]
+                ar1["airports-1<br/>Container: airports-1<br/>IP: 172.20.0.10<br/>Port: 8082 (HTTP/REST)"]
+                ar2["airports-2<br/>Container: airports-2<br/>IP: 172.20.0.11<br/>Port: 8092 (HTTP/REST)"]
+            end
+            subgraph FOCluster["flight-operations Cluster"]
+                fo1["flightops-1<br/>IP: 172.20.0.20 :8083"]
+                fo2["flightops-2<br/>IP: 172.20.0.21 :8093"]
+            end
+            subgraph AMCluster["aircraft-maintenance Cluster"]
+                am1["aircraft-1<br/>IP: 172.20.0.30 :8081"]
+                am2["aircraft-2<br/>IP: 172.20.0.31 :8091"]
+            end
+        end
+
+        subgraph StorageTier["Persistence Tier (Dedicated Shards)"]
+            db1[("Database 1<br/>Container: airports-db-1<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.50<br/>Port: 5432")]
+            db2[("Database 2<br/>Container: airports-db-2<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.51<br/>Port: 5435")]
+        end
+    end
+
+    user -->|"HTTPS / Port 8443"| lb
+    lb -->|"Round Robin / Health Check<br/>Port 8082"| ar1
+    lb -->|"Round Robin / Health Check<br/>Port 8092"| ar2
+    ar1 <-->|"P2P Unicast Forwarding<br/>X-Forwarded-From / SERVICE JWT"| ar2
+    ar1 ---|"JDBC Connection<br/>HikariCP Pool"| db1
+    ar2 ---|"JDBC Connection<br/>HikariCP Pool"| db2
+    fo1 -->|"Inter-Service Query :8082/:8092"| ARCluster
+    fo2 -->|"Inter-Service Query :8082/:8092"| ARCluster
+```
+
+---
+
+### 4.4. View 4: Implementation View (Core Code Snippets)
+
+Critical patterns implemented in `airports-routes-service`:
+
+#### Loop Prevention & Peer Forwarding (`InternalAirportsRoutesController.java`)
+```java
+@GetMapping("/airports/{iata}")
+public ResponseEntity<AirportInfo> getAirport(
+        @PathVariable String iata,
+        @RequestHeader(value = "X-Forwarded-From", required = false) String forwardedFrom,
+        @RequestHeader(value = "X-Request-Id", required = false) String requestId,
+        HttpServletResponse response) {
+
+    Optional<Airport> optAirport = airportRepository.findByIataCode_Code(iata.toUpperCase());
+    if (optAirport.isPresent()) {
+        response.setHeader("X-Data-Source", "local");
+        return ResponseEntity.ok(toAirportInfo(optAirport.get()));
+    }
+
+    // Loop Prevention: If already forwarded by a peer clone, do NOT forward again
+    if (forwardedFrom != null && !forwardedFrom.isBlank()) {
+        return ResponseEntity.notFound().build();
+    }
+
+    // Unicast Forwarding: Query peer replicas
+    Optional<AirportInfo> fromPeer = peerClient.fetchAirportFromPeers(iata.toUpperCase(), requestId);
+    if (fromPeer.isPresent()) {
+        response.setHeader("X-Data-Source", "peer");
+        return ResponseEntity.ok(fromPeer.get());
+    }
+
+    return ResponseEntity.notFound().build();
+}
+```
+
+#### Distributed Correlation & Tracing (`RequestTracingFilter.java`)
+```java
+@Override
+protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+        throws ServletException, IOException {
+    String requestId = request.getHeader("X-Request-Id");
+    if (!StringUtils.hasText(requestId) || requestId.length() > 64) {
+        requestId = UUID.randomUUID().toString().substring(0, 8);
+    }
+    MDC.put("requestId", requestId);
+    MDC.put("instance", instanceName);
+    response.setHeader("X-Request-Id", requestId);
+    response.setHeader("X-Instance", instanceName);
+    try {
+        chain.doFilter(request, response);
+    } finally {
+        MDC.remove("requestId");
+        MDC.remove("instance");
+    }
+}
+```
+
+---
+
+## 5. Verification & Automated Test Coverage
 
 The solution is verified by a suite of automated unit and integration tests:
 

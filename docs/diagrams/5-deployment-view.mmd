@@ -1,0 +1,40 @@
+%% C4 Deployment View: Physical / Virtual Nodes & Network Topology
+flowchart TB
+    subgraph ExtNet["External Client Network"]
+        user["Operator / ATCC Client<br/>Browser / API Client"]
+    end
+
+    subgraph Host["Docker Host / Virtual Machine Environment (172.20.0.0/16)"]
+        subgraph IngressTier["Traffic Distribution Layer"]
+            lb["Nginx Reverse Proxy / Load Balancer<br/>Container: aisafe-lb<br/>IP: 172.20.0.2<br/>Port: 8443 (HTTPS Ingress)"]
+        end
+
+        subgraph AppTier["Application Tier (Stateless Clones)"]
+            subgraph ARCluster["airports-routes Cluster"]
+                ar1["airports-1<br/>Container: airports-1<br/>IP: 172.20.0.10<br/>Port: 8082 (HTTP/REST)"]
+                ar2["airports-2<br/>Container: airports-2<br/>IP: 172.20.0.11<br/>Port: 8092 (HTTP/REST)"]
+            end
+            subgraph FOCluster["flight-operations Cluster"]
+                fo1["flightops-1<br/>IP: 172.20.0.20 :8083"]
+                fo2["flightops-2<br/>IP: 172.20.0.21 :8093"]
+            end
+            subgraph AMCluster["aircraft-maintenance Cluster"]
+                am1["aircraft-1<br/>IP: 172.20.0.30 :8081"]
+                am2["aircraft-2<br/>IP: 172.20.0.31 :8091"]
+            end
+        end
+
+        subgraph StorageTier["Persistence Tier (Dedicated Shards)"]
+            db1[("Database 1<br/>Container: airports-db-1<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.50<br/>Port: 5432")]
+            db2[("Database 2<br/>Container: airports-db-2<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.51<br/>Port: 5435")]
+        end
+    end
+
+    user -->|"HTTPS / Port 8443"| lb
+    lb -->|"Round Robin / Health Check<br/>Port 8082"| ar1
+    lb -->|"Round Robin / Health Check<br/>Port 8092"| ar2
+    ar1 <-->|"P2P Unicast Forwarding<br/>X-Forwarded-From / SERVICE JWT"| ar2
+    ar1 ---|"JDBC Connection<br/>HikariCP Pool"| db1
+    ar2 ---|"JDBC Connection<br/>HikariCP Pool"| db2
+    fo1 -->|"Inter-Service Query :8082/:8092"| ARCluster
+    fo2 -->|"Inter-Service Query :8082/:8092"| ARCluster
