@@ -27,12 +27,14 @@ import java.util.List;
 import org.springframework.hateoas.CollectionModel;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.stream.Collectors;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/airports")
 @Tag(name = "Airports", description = "Endpoints for managing Airports and Certifications (WP#2A)")
+@Transactional
 public class AirportController {
 
     private final AirportService airportService;
@@ -84,19 +86,21 @@ public class AirportController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ATCC')")
-    @Operation(summary = "US108 - Search Airports by city, country, or name")
+    @PreAuthorize("hasAnyRole('ATCC', 'BACKOFFICE_OPERATOR')")
+    @Operation(summary = "US108 - Search Airports by city, country, or name, or list all airports")
     public ResponseEntity<CollectionModel<AirportViewDTO>> searchAirports(
             @RequestParam(value = "city", required = false) String city,
             @RequestParam(value = "country", required = false) String country,
             @RequestParam(value = "name", required = false) String name) {
         
+        List<Airport> airports;
         if ((city == null || city.trim().isEmpty()) && 
             (country == null || country.trim().isEmpty()) && 
             (name == null || name.trim().isEmpty())) {
-            throw new IllegalArgumentException("At least one search parameter (city, country, or name) is required.");
+            airports = airportService.getAllAirports();
+        } else {
+            airports = airportService.searchAirports(city, country, name);
         }
-        List<Airport> airports = airportService.searchAirports(city, country, name);
         return ResponseEntity.ok(airportModelAssembler.toCollectionModel(airports));
     }
 

@@ -20,7 +20,7 @@ public class Airport {
     @Embedded
     private Location location;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "airport_runways",
             joinColumns = @JoinColumn(name = "airport_id")
@@ -42,7 +42,7 @@ public class Airport {
 
     private String name;
     
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "airport_photos",
             joinColumns = @JoinColumn(name = "airport_id")
@@ -52,14 +52,14 @@ public class Airport {
     @Embedded
     private OperationalHours operationalHours;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "airport_contacts",
             joinColumns = @JoinColumn(name = "airport_id")
     )
     private List<Contact> contacts = new ArrayList<>();
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JoinColumn(name = "airport_id")
     private List<Terminal> terminals = new ArrayList<>();
 
