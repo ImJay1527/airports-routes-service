@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import pt.isep.sidis.airports.airportmanagement.domain.*;
 import pt.isep.sidis.airports.airportmanagement.repositories.AirportRepository;
+import pt.isep.sidis.airports.cluster.ClusterConfig;
 import pt.isep.sidis.airports.flightroutes.domain.*;
 import pt.isep.sidis.airports.flightroutes.repositories.FlightRouteRepository;
 
@@ -13,10 +14,14 @@ public class Bootstrapper implements CommandLineRunner {
 
     private final AirportRepository airportRepository;
     private final FlightRouteRepository flightRouteRepository;
+    private final ClusterConfig clusterConfig;
 
-    public Bootstrapper(AirportRepository airportRepository, FlightRouteRepository flightRouteRepository) {
+    public Bootstrapper(AirportRepository airportRepository,
+                        FlightRouteRepository flightRouteRepository,
+                        ClusterConfig clusterConfig) {
         this.airportRepository = airportRepository;
         this.flightRouteRepository = flightRouteRepository;
+        this.clusterConfig = clusterConfig;
     }
 
     @Override
@@ -28,6 +33,7 @@ public class Bootstrapper implements CommandLineRunner {
 
     private void bootstrapAirports() {
         if (airportRepository.count() == 0) {
+            // Core common catalog across all instances
             Location locOpo = new Location("Norte", "Portugal", "Porto", new GPSCoordinates(41.2481, -8.6814));
             Airport opo = new Airport(new IATACode("OPO"), "Francisco Sá Carneiro", locOpo, new Timezone("UTC+01:00"));
             opo.addCertification("A320neo");
@@ -46,7 +52,25 @@ public class Bootstrapper implements CommandLineRunner {
             mad.addCertification("737 MAX");
             airportRepository.save(mad);
 
-            System.out.println(" -> Bootstrapped airports: OPO, LIS, MAD");
+            // Sharded / partition-specific data to demonstrate P2P forwarding
+            String self = clusterConfig.getSelfName();
+            if (self != null && (self.contains("1") || self.equalsIgnoreCase("default"))) {
+                Location locBcn = new Location("Catalunya", "Espanha", "Barcelona", new GPSCoordinates(41.2974, 2.0833));
+                Airport bcn = new Airport(new IATACode("BCN"), "El Prat", locBcn, new Timezone("UTC+02:00"));
+                bcn.addCertification("A320neo");
+                bcn.addCertification("737 MAX");
+                airportRepository.save(bcn);
+            }
+
+            if (self != null && self.contains("2")) {
+                Location locFao = new Location("Algarve", "Portugal", "Faro", new GPSCoordinates(37.0144, -7.9659));
+                Airport fao = new Airport(new IATACode("FAO"), "Gago Coutinho", locFao, new Timezone("UTC+01:00"));
+                fao.addCertification("A320neo");
+                fao.addCertification("737 MAX");
+                airportRepository.save(fao);
+            }
+
+            System.out.println(" -> Bootstrapped airports for [" + clusterConfig.getSelfName() + "]");
         }
     }
 
@@ -77,7 +101,22 @@ public class Bootstrapper implements CommandLineRunner {
             route4.deactivate("Bootstrapper");
             flightRouteRepository.save(route4);
 
-            System.out.println(" -> Bootstrapped routes: route-opo-lis, route-lis-mad, route-mad-opo, route-opo-mad-old");
+            // Partitioned routes
+            if (airportRepository.findByIataCode_Code("BCN").isPresent()) {
+                Airport bcn = airportRepository.findByIataCode_Code("BCN").get();
+                RouteRequirement reqBcn = new RouteRequirement(1000.0, 150);
+                FlightRoute routeBcn = new FlightRoute("route-opo-bcn", opo, bcn, 900.0, 120, reqBcn, "Bootstrapper");
+                flightRouteRepository.save(routeBcn);
+            }
+
+            if (airportRepository.findByIataCode_Code("FAO").isPresent()) {
+                Airport fao = airportRepository.findByIataCode_Code("FAO").get();
+                RouteRequirement reqFao = new RouteRequirement(300.0, 100);
+                FlightRoute routeFao = new FlightRoute("route-fao-lis", fao, lis, 220.0, 35, reqFao, "Bootstrapper");
+                flightRouteRepository.save(routeFao);
+            }
+
+            System.out.println(" -> Bootstrapped routes for [" + clusterConfig.getSelfName() + "]");
         }
     }
 }
