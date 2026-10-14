@@ -290,8 +290,9 @@
                   "});",
                   "pm.test('Returns list of airports', function () {",
                   "    var json = pm.response.json();",
-                  "    pm.expect(Array.isArray(json)).to.be.true;",
-                  "    pm.expect(json.length).to.be.above(0);",
+                  "    var list = json._embedded ? json._embedded.airportViewDTOList : json;",
+                  "    pm.expect(Array.isArray(list)).to.be.true;",
+                  "    pm.expect(list.length).to.be.above(0);",
                   "});"
                 ],
                 "type": "text/javascript"
