@@ -1,0 +1,508 @@
+{
+  "info": {
+    "_postman_id": "7f90352b-1025-4c48-a001-c85241013ar",
+    "name": "Airports & Routes Service",
+    "description": "Test suite for airports-routes-service in AISafe distributed system (SIDIS 2026/2027). Covers internal service contracts, peer query forwarding, loop prevention, security, and public endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Internal Contract & P2P Forwarding",
+      "item": [
+        {
+          "name": "GET Airport LIS (Instance 1 - Local Hit)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('X-Data-Source is local', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Data-Source')).to.eql('local');",
+                  "});",
+                  "pm.test('Airport is LIS and OPERATIONAL', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.iataCode).to.eql('LIS');",
+                  "    pm.expect(json.status).to.eql('OPERATIONAL');",
+                  "    pm.expect(json.certifiedModels).to.include('A320neo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/LIS",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "LIS"]
+            }
+          }
+        },
+        {
+          "name": "GET Airport FAO (Instance 1 Miss -> Forward to Instance 2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('X-Data-Source is peer', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Data-Source')).to.eql('peer');",
+                  "});",
+                  "pm.test('Airport is FAO from peer replica', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.iataCode).to.eql('FAO');",
+                  "    pm.expect(json.status).to.eql('OPERATIONAL');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/FAO",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "FAO"]
+            }
+          }
+        },
+        {
+          "name": "GET Airport BCN (Instance 2 Miss -> Forward to Instance 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('X-Data-Source is peer', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Data-Source')).to.eql('peer');",
+                  "});",
+                  "pm.test('Airport is BCN from instance 1', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.iataCode).to.eql('BCN');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance2}}/internal/airports/BCN",
+              "host": ["{{instance2}}"],
+              "path": ["internal", "airports", "BCN"]
+            }
+          }
+        },
+        {
+          "name": "GET Route route-opo-lis (Instance 1 - Local Hit)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('X-Data-Source is local', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Data-Source')).to.eql('local');",
+                  "});",
+                  "pm.test('Route matches contract shape', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.routeId).to.eql('route-opo-lis');",
+                  "    pm.expect(json.status).to.eql('ACTIVE');",
+                  "    pm.expect(json.distanceKm).to.eql(277.0);",
+                  "    pm.expect(json.origin.iataCode).to.eql('OPO');",
+                  "    pm.expect(json.destination.iataCode).to.eql('LIS');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/routes/route-opo-lis",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "routes", "route-opo-lis"]
+            }
+          }
+        },
+        {
+          "name": "GET Route route-fao-lis (Instance 1 Miss -> Forward to Instance 2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('X-Data-Source is peer', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Data-Source')).to.eql('peer');",
+                  "});",
+                  "pm.test('Route is route-fao-lis from peer', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.routeId).to.eql('route-fao-lis');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/routes/route-fao-lis",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "routes", "route-fao-lis"]
+            }
+          }
+        },
+        {
+          "name": "Loop Prevention (X-Forwarded-From stops forwarding cycle)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404 Not Found (no forward loop)', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Forwarded-From",
+                "value": "instance2",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/FAO",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "FAO"]
+            }
+          }
+        },
+        {
+          "name": "Cluster-wide Miss returns 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/NONEXISTENT",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "NONEXISTENT"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Public Domain APIs",
+      "item": [
+        {
+          "name": "GET All Airports (/api/airports)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Returns list of airports', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(Array.isArray(json)).to.be.true;",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operatorToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/api/airports",
+              "host": ["{{instance1}}"],
+              "path": ["api", "airports"]
+            }
+          }
+        },
+        {
+          "name": "GET Airport Details (/api/airports/OPO)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Airport is OPO', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.iataCode).to.eql('OPO');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{atccToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/api/airports/OPO",
+              "host": ["{{instance1}}"],
+              "path": ["api", "airports", "OPO"]
+            }
+          }
+        },
+        {
+          "name": "GET Flight Routes (/api/flight-routes)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{atccToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/api/flight-routes",
+              "host": ["{{instance1}}"],
+              "path": ["api", "flight-routes"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Security & Access Control",
+      "item": [
+        {
+          "name": "Internal API without Token returns 401/403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 401 or 403', function () {",
+                  "    pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/LIS",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "LIS"]
+            }
+          }
+        },
+        {
+          "name": "Internal API with User Token (No SERVICE role) returns 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 403 Forbidden', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{atccToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{instance1}}/internal/airports/LIS",
+              "host": ["{{instance1}}"],
+              "path": ["internal", "airports", "LIS"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Observability & Health",
+      "item": [
+        {
+          "name": "Health Check Instance 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Health status is UP', function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instance1}}/actuator/health",
+              "host": ["{{instance1}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "Health Check Instance 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Health status is UP', function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instance2}}/actuator/health",
+              "host": ["{{instance2}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
