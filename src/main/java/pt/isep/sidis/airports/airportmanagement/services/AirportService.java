@@ -251,6 +251,10 @@ public class AirportService {
         return airportRepository.save(airport);
     }
 
+    public List<Airport> getAllAirports() {
+        return airportRepository.findAll();
+    }
+
     public List<Airport> searchAirports(String city, String country, String name) {
         return airportRepository.searchAirports(city, country, name);
     }

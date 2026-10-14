@@ -30,11 +30,11 @@ public class AirportViewDTO extends RepresentationModel<AirportViewDTO> {
         this.country = airport.getLocation().getCountry();
         this.city = airport.getLocation().getCity();
         this.status = airport.getStatus().name();
-        this.photos = airport.getPhotos();
+        this.photos = airport.getPhotos() != null ? airport.getPhotos() : List.of();
         
-        this.certifications = airport.getCertifications().stream()
-                .map(c -> c.getModelName())
-                .collect(Collectors.toList());
+        this.certifications = airport.getCertifications() != null 
+            ? airport.getCertifications().stream().map(c -> c.getModelName()).collect(Collectors.toList())
+            : List.of();
                 
         this.operationalHours = airport.getOperationalHours() != null
             ? new OperationalHoursDTO() {{
@@ -45,19 +45,23 @@ public class AirportViewDTO extends RepresentationModel<AirportViewDTO> {
             }}
             : null;
             
-        this.contacts = airport.getContacts().stream()
-            .map(c -> {
-                ContactDTO dto = new ContactDTO();
-                dto.setValue(c.getValue());
-                dto.setDepartment(c.getDepartment());
-                dto.setType(c.getType());
-                return dto;
-            })
-            .collect(Collectors.toList());
+        this.contacts = airport.getContacts() != null 
+            ? airport.getContacts().stream()
+                .map(c -> {
+                    ContactDTO dto = new ContactDTO();
+                    dto.setValue(c.getValue());
+                    dto.setDepartment(c.getDepartment());
+                    dto.setType(c.getType());
+                    return dto;
+                })
+                .collect(Collectors.toList())
+            : List.of();
 
-        this.terminals = airport.getTerminals().stream()
-            .map(TerminalViewDTO::new)
-            .collect(Collectors.toList());
+        this.terminals = airport.getTerminals() != null
+            ? airport.getTerminals().stream()
+                .map(TerminalViewDTO::new)
+                .collect(Collectors.toList())
+            : List.of();
     }
 
 
