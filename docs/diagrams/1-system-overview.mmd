@@ -1,0 +1,39 @@
+%% C4 Level 2 Container Diagram: AISafe Distributed System focusing on airports-routes-service
+flowchart LR
+    client["Clients & Operators<br/>(ATCC, Backoffice Operator, Postman)"]
+    lb["Load Balancer / Ingress<br/>https://localhost:8443"]
+
+    subgraph AR["airports-routes-service (This Service)"]
+        direction TB
+        ar1["airports-1<br/>Port :8082"]
+        ar2["airports-2<br/>Port :8092"]
+        db1[("Database 1<br/>(H2 / PostgreSQL 5432)")]
+        db2[("Database 2<br/>(H2 / PostgreSQL 5435)")]
+        ar1 --- db1
+        ar2 --- db2
+        ar1 <-->|"P2P Peer Forwarding<br/>GET /internal/** (SERVICE JWT)"| ar2
+    end
+
+    subgraph FO["flight-operations-service"]
+        direction TB
+        fo1["instance1 :8083"]
+        fo2["instance2 :8093"]
+        fo1 <--> fo2
+    end
+
+    subgraph AM["aircraft-maintenance-service"]
+        direction TB
+        am1["instance1 :8081"]
+        am2["instance2 :8091"]
+        am1 <--> am2
+    end
+
+    client -->|"HTTPS + User JWT<br/>(/api/airports, /api/flight-routes)"| lb
+    lb --> ar1
+    lb --> ar2
+
+    FO -->|"Inter-Service Query<br/>GET /internal/routes/{id}<br/>GET /internal/airports/{iata}"| AR
+    FO -->|"Inter-Service Query<br/>GET /internal/aircraft/{reg}"| AM
+
+    classDef db fill:#eef6ff,stroke:#5b8def
+    class db1,db2 db

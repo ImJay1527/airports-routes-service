@@ -1,0 +1,23 @@
+%% Sequence Diagram: P2P HTTP GET Forwarding between Replicas
+sequenceDiagram
+    autonumber
+    participant C as Caller (Flight Ops / Client)
+    participant A1 as airports-1 (Port 8082)
+    participant DB1 as Database 1 (Local Shard)
+    participant A2 as airports-2 (Port 8092)
+    participant DB2 as Database 2 (Remote Shard)
+
+    C->>A1: GET /internal/airports/MAD<br/>Authorization: Bearer SERVICE_JWT, X-Request-Id: req-101
+    A1->>DB1: findByIataCode("MAD")
+    DB1-->>A1: Not Found (Local Shard Miss)
+
+    Note over A1: Data not held locally.<br/>Forward query to peer replica<br/>with loop-prevention header.
+
+    A1->>A2: GET /internal/airports/MAD<br/>X-Forwarded-From: airports-1, X-Request-Id: req-101
+    A2->>DB2: findByIataCode("MAD") (Local check only)
+    DB2-->>A2: Airport MAD (Found!)
+    A2-->>A1: 200 OK { iataCode: "MAD", status: "OPERATIONAL", ... }
+    
+    A1-->>C: 200 OK { iataCode: "MAD", ... }<br/>X-Data-Source: peer:airports-2
+
+    Note over A1,A2: Single distributed trace preserved across both instances via [req-101]

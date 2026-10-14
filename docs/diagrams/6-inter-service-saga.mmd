@@ -1,0 +1,33 @@
+%% C4+1 Process View: Distributed Saga Pattern with Compensations
+sequenceDiagram
+    autonumber
+    participant Op as Flight Dispatcher
+    participant FO as flight-operations-service
+    participant AR as airports-routes-service
+    participant AM as aircraft-maintenance-service
+
+    Note over Op,FO: Step 1: Initiate Booking Saga
+    Op->>FO: POST /api/flights (Create Flight Plan)<br/>Route: route-opo-lis, Aircraft: CS-TNM
+    
+    Note over FO: Local Step: Reserve Provisional Flight Slot (State: PENDING)
+    
+    Note over FO,AR: Step 2: Validate Route & Airports
+    FO->>AR: GET /internal/routes/route-opo-lis<br/>Authorization: Bearer SERVICE_JWT
+    AR-->>FO: 200 OK [distance: 277km, status: ACTIVE, requiredModel: A320neo]
+    
+    FO->>AR: GET /internal/airports/LIS<br/>Authorization: Bearer SERVICE_JWT
+    AR-->>FO: 200 OK [status: OPERATIONAL, certifications: [A320neo, 737 MAX]]
+
+    Note over FO,AM: Step 3: Validate Aircraft Airworthiness
+    FO->>AM: GET /internal/aircraft/CS-TNM<br/>Authorization: Bearer SERVICE_JWT
+    
+    alt Aircraft Maintenance Check Fails (Unavailable / Maintenance Required)
+        AM-->>FO: 422 Unprocessable Entity [status: UNDER_MAINTENANCE]
+        Note over FO: SAGA FAILURE TRIGGERED!<br/>Execute Compensating Transaction:
+        Note over FO: Compensator C1: Cancel Provisional Reservation<br/>Update Flight State -> CANCELLED
+        FO-->>Op: 422 Unprocessable Entity<br/>{"error": "Flight planning rejected: Aircraft CS-TNM under maintenance"}
+    else Aircraft Airworthy & Validated
+        AM-->>FO: 200 OK [model: A320neo, status: AIRWORTHY, maxRange: 6100km]
+        Note over FO: All Distributed Invariants Satisfied.<br/>Commit Transaction: Update Flight State -> CONFIRMED
+        FO-->>Op: 201 Created [Flight #AF124 Scheduled]
+    end
