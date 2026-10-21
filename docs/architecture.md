@@ -318,6 +318,53 @@ flowchart TB
     fo2 -->|"Inter-Service Query :8082/:8092"| ARCluster
 ```
 
+#### 4.3.2. Standalone Docker Compose Deployment (`airports-routes-service`)
+
+Details container orchestration, port bindings, named persistent volumes, and healthcheck dependencies within the service's own Docker environment:
+
+```mermaid
+%% C4 Deployment View: Standalone airports-routes Docker Compose Deployment
+flowchart TB
+    subgraph Host["Docker Host (Host Network)"]
+        client["Client / Postman / Flight Operations"]
+
+        subgraph DockerBridge["Docker Network: default (Bridge 172.28.0.0/16)"]
+            subgraph ServiceCluster["Application Tier (Spring Boot 3 / Temurin 21)"]
+                ar1["Container: airports-1<br/>Port in container: 8082<br/>Host Port: 8082:8082<br/>Profile: instance1,postgres<br/>Healthcheck: GET /actuator/health"]
+                ar2["Container: airports-2<br/>Port in container: 8082<br/>Host Port: 8092:8082<br/>Profile: instance2,postgres<br/>Healthcheck: GET /actuator/health"]
+            end
+
+            subgraph DatabaseTier["Database Tier (PostgreSQL 16 Alpine)"]
+                db1[("Container: airports-db-1<br/>Container Port: 5432<br/>Host Port: 5432:5432<br/>Healthcheck: pg_isready")]
+                db2[("Container: airports-db-2<br/>Container Port: 5432<br/>Host Port: 5435:5432<br/>Healthcheck: pg_isready")]
+            end
+
+            subgraph Volumes["Docker Named Volumes (Persistent Storage)"]
+                vol1[("Volume: airports-db-1-data<br/>Mount: /var/lib/postgresql/data")]
+                vol2[("Volume: airports-db-2-data<br/>Mount: /var/lib/postgresql/data")]
+            end
+        end
+    end
+
+    client -->|"HTTP GET :8082"| ar1
+    client -->|"HTTP GET :8092"| ar2
+
+    ar1 <-->|"P2P Unicast Forwarding<br/>http://airports-2:8082<br/>X-Forwarded-From / SERVICE JWT"| ar2
+
+    ar1 -->|"JDBC: postgresql://airports-db-1:5432/airports<br/>condition: service_healthy"| db1
+    ar2 -->|"JDBC: postgresql://airports-db-2:5432/airports<br/>condition: service_healthy"| db2
+
+    db1 --- vol1
+    db2 --- vol2
+
+    classDef app fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef db fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    classDef vol fill:#fff3e0,stroke:#f57c00,stroke-width:1px,stroke-dasharray: 5 5;
+    class ar1,ar2 app;
+    class db1,db2 db;
+    class vol1,vol2 vol;
+```
+
 ---
 
 ### 4.4. View 4: Implementation View (Core Code Snippets)
