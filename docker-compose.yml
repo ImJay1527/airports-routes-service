@@ -1,0 +1,87 @@
+# Airports & Routes Service - Multi-instance replication cluster
+# 2 instances, each with its own independent PostgreSQL database.
+#
+# Usage:
+#   docker compose up --build               # Start 2 instances with PostgreSQL databases
+#   docker compose up -d                    # Start in background
+#   docker compose ps                       # Check status and health
+#   docker compose logs -f                  # View logs
+#   docker compose down                     # Stop all containers
+#   docker compose down -v                  # Stop and remove database volumes
+#
+# Ports:
+#   airports-1: http://localhost:8082  (DB: localhost:5432)
+#   airports-2: http://localhost:8092  (DB: localhost:5435)
+
+x-common-env: &common-env
+  JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+
+x-postgres-db: &postgres-db
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_DB: airports
+    POSTGRES_USER: airports
+    POSTGRES_PASSWORD: ${DB_PASSWORD:-airports}
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U airports -d airports"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-airports-instance: &airports-instance
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fs http://localhost:8082/actuator/health || exit 1"]
+    interval: 10s
+    timeout: 3s
+    start_period: 40s
+    retries: 5
+
+services:
+  # ---------- Instance 1 ----------
+  airports-1:
+    <<: *airports-instance
+    build: .
+    depends_on:
+      airports-db-1: { condition: service_healthy }
+    ports: ["8082:8082"]
+    environment:
+      <<: *common-env
+      SPRING_PROFILES_ACTIVE: instance1,postgres
+      INSTANCE_NAME: instance1
+      PORT: 8082
+      DB_URL: jdbc:postgresql://airports-db-1:5432/airports
+      DB_USER: airports
+      DB_PASSWORD: ${DB_PASSWORD:-airports}
+      PEERS: http://airports-2:8082
+
+  airports-db-1:
+    <<: *postgres-db
+    ports: ["5432:5432"]
+    volumes: ["airports-db-1-data:/var/lib/postgresql/data"]
+
+  # ---------- Instance 2 ----------
+  airports-2:
+    <<: *airports-instance
+    build: .
+    depends_on:
+      airports-db-2: { condition: service_healthy }
+    ports: ["8092:8082"]
+    environment:
+      <<: *common-env
+      SPRING_PROFILES_ACTIVE: instance2,postgres
+      INSTANCE_NAME: instance2
+      PORT: 8082
+      DB_URL: jdbc:postgresql://airports-db-2:5432/airports
+      DB_USER: airports
+      DB_PASSWORD: ${DB_PASSWORD:-airports}
+      PEERS: http://airports-1:8082
+
+  airports-db-2:
+    <<: *postgres-db
+    ports: ["5435:5432"]
+    volumes: ["airports-db-2-data:/var/lib/postgresql/data"]
+
+volumes:
+  airports-db-1-data:
+  airports-db-2-data:

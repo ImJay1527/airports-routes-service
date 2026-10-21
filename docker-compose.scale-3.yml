@@ -1,0 +1,52 @@
+# Scale-up override: adds a third airports-routes instance.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.scale-3.yml up --build
+
+services:
+  airports-1:
+    environment:
+      PEERS: http://airports-2:8082,http://airports-3:8082
+
+  airports-2:
+    environment:
+      PEERS: http://airports-1:8082,http://airports-3:8082
+
+  airports-3:
+    build: .
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 40s
+      retries: 5
+    depends_on:
+      airports-db-3: { condition: service_healthy }
+    ports: ["8102:8082"]
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      SPRING_PROFILES_ACTIVE: instance3,postgres
+      INSTANCE_NAME: instance3
+      PORT: 8082
+      DB_URL: jdbc:postgresql://airports-db-3:5432/airports
+      DB_USER: airports
+      DB_PASSWORD: ${DB_PASSWORD:-airports}
+      PEERS: http://airports-1:8082,http://airports-2:8082
+
+  airports-db-3:
+    image: postgres:16-alpine
+    ports: ["5436:5432"]
+    environment:
+      POSTGRES_DB: airports
+      POSTGRES_USER: airports
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-airports}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airports -d airports"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes: ["airports-db-3-data:/var/lib/postgresql/data"]
+
+volumes:
+  airports-db-3-data:
