@@ -4,8 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ssl.SslBundle;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -14,12 +16,14 @@ import pt.isep.sidis.airports.common.security.JwtUtils;
 import pt.isep.sidis.airports.internal.AirportInfo;
 import pt.isep.sidis.airports.internal.RouteInfo;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Dispatches Unicast HTTP GET requests to peer replica instances when data is not held locally.
+ * Dispatches Unicast HTTP/HTTPS GET requests to peer replica instances when data is not held locally.
  * Includes loop-prevention header X-Forwarded-From and propagates X-Request-Id.
+ * Supports TLS 1.3 encryption in transit with custom SSL bundles.
  */
 @Component
 public class HttpPeerClient implements PeerClient {
@@ -33,17 +37,40 @@ public class HttpPeerClient implements PeerClient {
     @Autowired
     public HttpPeerClient(ClusterConfig clusterConfig,
                           JwtUtils jwtUtils,
+                          @Autowired(required = false) SslBundles sslBundles,
+                          @Value("${sidis.tls.client-bundle:}") String clientBundleName,
                           @Value("${airports.peer-timeout-ms:1500}") long timeoutMs) {
         this.clusterConfig = clusterConfig;
         this.jwtUtils = jwtUtils;
 
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(Duration.ofMillis(timeoutMs));
+        HttpClient.Builder clientBuilder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(timeoutMs));
+
+        if (sslBundles != null && clientBundleName != null && !clientBundleName.isBlank()) {
+            try {
+                SslBundle bundle = sslBundles.getBundle(clientBundleName);
+                if (bundle != null) {
+                    clientBuilder.sslContext(bundle.createSslContext());
+                    log.info("HttpPeerClient configured with TLS bundle '{}'", clientBundleName);
+                }
+            } catch (Exception e) {
+                log.warn("Could not load TLS client bundle '{}': {}", clientBundleName, e.getMessage());
+            }
+        }
+
+        JdkClientHttpRequestFactory requestFactory =
+                new JdkClientHttpRequestFactory(clientBuilder.build());
         requestFactory.setReadTimeout(Duration.ofMillis(timeoutMs));
 
         this.restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .build();
+    }
+
+    public HttpPeerClient(ClusterConfig clusterConfig,
+                          JwtUtils jwtUtils,
+                          long timeoutMs) {
+        this(clusterConfig, jwtUtils, null, null, timeoutMs);
     }
 
     public HttpPeerClient(ClusterConfig clusterConfig, JwtUtils jwtUtils, RestClient restClient) {

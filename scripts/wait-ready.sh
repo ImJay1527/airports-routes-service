@@ -65,7 +65,8 @@ done
 echo
 echo "=================================================================="
 echo "  READY FOR TESTS - all $N airports-routes instance(s) are up"
-echo "  Instance 1: http://localhost:8082"
-echo "  Instance 2: http://localhost:8092"
+for i in $(seq 1 "$N"); do
+  echo "  Instance $i: $SCHEME://localhost:$(port "$i")"
+done
 echo "=================================================================="
 echo

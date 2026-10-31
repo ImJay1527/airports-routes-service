@@ -31,7 +31,7 @@ x-postgres-db: &postgres-db
 x-airports-instance: &airports-instance
   restart: unless-stopped
   healthcheck:
-    test: ["CMD-SHELL", "curl -fs http://localhost:8082/actuator/health || exit 1"]
+    test: ["CMD-SHELL", "curl -fsk https://localhost:8082/actuator/health || curl -fs http://localhost:8082/actuator/health || exit 1"]
     interval: 10s
     timeout: 3s
     start_period: 40s

@@ -4,4 +4,6 @@ target/
 .vscode/
 .env
 *.log
+logs/
+certs/
 HELP.md

@@ -424,6 +424,18 @@ protected void doFilterInternal(HttpServletRequest request, HttpServletResponse 
 }
 ```
 
+### 4.3. Encryption in Transit (TLS 1.3 & Zero-Trust PKI)
+
+To secure inter-service communication and peer query forwarding across unsegmented networks, the service supports strict **TLS 1.3 encryption in transit**:
+
+* **Development PKI (`scripts/generate-dev-certs.sh`)**:
+  - A shared development Certificate Authority (`AISafe Dev CA`) issues PKCS#12 keystores (`certs/airports.p12`) and truststores (`certs/truststore.p12`).
+  - Subject Alternative Names (SAN) cover `localhost`, `127.0.0.1`, `airports`, and replica hostnames `airports-1`, `airports-2`, `airports-3`.
+* **Spring Boot 3.3 SSL Bundles**:
+  - Configured via the `tls` profile in `src/main/resources/application-tls.properties`.
+  - Inbound server connections strictly enforce `TLSv1.3`.
+  - Outbound peer queries via `HttpPeerClient` use a custom `JdkClientHttpRequestFactory` configured with the client truststore bundle, rejecting untrusted certificates.
+
 ---
 
 ## 5. Verification & Automated Test Coverage
@@ -439,3 +451,6 @@ The solution is verified by a suite of automated unit and integration tests:
 | `testRouteForwardingWhenMissingLocally` | Validate unicast forwarding for flight routes. | MockMvc GET `/internal/routes/route-opo-fao`. Asserts status 200, header `X-Data-Source: peer`. |
 | `testInternalForbiddenForNonServiceUser` | Enforce inter-service security boundary. | MockMvc GET with user token lacking `ROLE_SERVICE`. Asserts status 403 Forbidden. |
 | `testInternalAllowedForServiceUser` | Verify authorized service queries succeed. | MockMvc GET with `ROLE_SERVICE`. Asserts status 200 OK. |
+| `sslBundlesLoadedWithTls13Protocols` | Validate TLS 1.3 protocol requirement on server and client bundles. | AssertJ inspection of `SslBundles` under `tls` profile. |
+| `httpsEndpointAnswersWhenClientTrustsDevCa` | Validate successful end-to-end HTTPS handshake and actuator response. | JDK HttpClient with client bundle SSLContext GET `https://localhost:{port}/actuator/health`. |
+| `plainHttpClientFailsHandshakeOnHttpsPort` | Ensure untrusted or non-TLS requests are rejected. | Untrusted HttpClient handshake failure assertion. |
