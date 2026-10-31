@@ -11,8 +11,9 @@ flowchart TB
 
         subgraph AppTier["Application Tier (Stateless Clones)"]
             subgraph ARCluster["airports-routes Cluster"]
-                ar1["airports-1<br/>Container: airports-1<br/>IP: 172.20.0.10<br/>Port: 8082 (HTTP/REST)"]
-                ar2["airports-2<br/>Container: airports-2<br/>IP: 172.20.0.11<br/>Port: 8092 (HTTP/REST)"]
+                ar1["airports-1<br/>Container: airports-1<br/>IP: 172.20.0.10<br/>Port: 8082 (HTTPS TLS 1.3)"]
+                ar2["airports-2<br/>Container: airports-2<br/>IP: 172.20.0.11<br/>Port: 8092 (HTTPS TLS 1.3)"]
+                ar3["airports-3<br/>Container: airports-3<br/>IP: 172.20.0.12<br/>Port: 8102 (HTTPS TLS 1.3)"]
             end
             subgraph FOCluster["flight-operations Cluster"]
                 fo1["flightops-1<br/>IP: 172.20.0.20 :8083"]
@@ -25,16 +26,21 @@ flowchart TB
         end
 
         subgraph StorageTier["Persistence Tier (Dedicated Shards)"]
-            db1[("Database 1<br/>Container: airports-db-1<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.50<br/>Port: 5432")]
-            db2[("Database 2<br/>Container: airports-db-2<br/>PostgreSQL 16 / H2<br/>IP: 172.20.0.51<br/>Port: 5435")]
+            db1[("Database 1<br/>Container: airports-db-1<br/>PostgreSQL 16 / H2<br/>Port: 5432")]
+            db2[("Database 2<br/>Container: airports-db-2<br/>PostgreSQL 16 / H2<br/>Port: 5435")]
+            db3[("Database 3<br/>Container: airports-db-3<br/>PostgreSQL 16 / H2<br/>Port: 5436")]
         end
     end
 
     user -->|"HTTPS / Port 8443"| lb
     lb -->|"Round Robin / Health Check<br/>Port 8082"| ar1
     lb -->|"Round Robin / Health Check<br/>Port 8092"| ar2
-    ar1 <-->|"P2P Unicast Forwarding<br/>X-Forwarded-From / SERVICE JWT"| ar2
+    lb -->|"Round Robin / Health Check<br/>Port 8102"| ar3
+    ar1 <-->|"P2P Unicast Forwarding (TLS 1.3)<br/>X-Forwarded-From / SERVICE JWT"| ar2
+    ar2 <-->|"P2P Unicast Forwarding (TLS 1.3)"| ar3
+    ar1 <-->|"P2P Unicast Forwarding (TLS 1.3)"| ar3
     ar1 ---|"JDBC Connection<br/>HikariCP Pool"| db1
     ar2 ---|"JDBC Connection<br/>HikariCP Pool"| db2
-    fo1 -->|"Inter-Service Query :8082/:8092"| ARCluster
-    fo2 -->|"Inter-Service Query :8082/:8092"| ARCluster
+    ar3 ---|"JDBC Connection<br/>HikariCP Pool"| db3
+    fo1 -->|"Inter-Service Query :8082/:8092/:8102"| ARCluster
+    fo2 -->|"Inter-Service Query :8082/:8092/:8102"| ARCluster
