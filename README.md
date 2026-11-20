@@ -44,20 +44,30 @@ export JAVA_HOME="/home/afonso/Downloads/idea-IU-262.10968.63/jbr" && export PAT
 
 ## 3. Testing & Verification
 
-- **Automated Tests (12/12 passing)**:
+- **Automated Tests (17/17 passing)**:
   ```bash
+  export JAVA_HOME="/home/afonso/Downloads/idea-IU-262.10968.63/jbr" && export PATH="$JAVA_HOME/bin:$PATH"
   ./mvnw test
   ```
-  Includes unit tests, domain tests, peer forwarding mock tests, and `TlsConfigurationIntegrationTest` validating TLS 1.3 protocol enforcement and mutual Dev CA trust.
+  Includes unit tests, domain tests, peer forwarding mock tests, `TlsConfigurationIntegrationTest` validating TLS 1.3 protocol enforcement, `CqrsEventReplicationTest` testing async AMQP RabbitMQ synchronization, and `UnicornMoodControllerTest`.
 
 - **Live Cluster Demonstration Script**:
   ```bash
-  ./scripts/demo-cluster.sh         # Run 7 live distributed scenarios against HTTP
-  ./scripts/demo-cluster.sh --tls   # Run 7 live distributed scenarios against HTTPS (TLS 1.3)
+  ./scripts/demo-cluster.sh         # Run 8 live distributed scenarios against HTTP
+  ./scripts/demo-cluster.sh --tls   # Run 8 live distributed scenarios against HTTPS (TLS 1.3)
   ```
 
-- **Postman Test Suite (28/28 assertions passing)**:
+- **Postman Test Suite (32/32 assertions passing)**:
   - Collection: `postman/airports-routes.postman_collection.json`
   - Environment (HTTP): `postman/local.postman_environment.json`
   - Environment (HTTPS): `postman/local-https.postman_environment.json`
-  - Tests local hits, peer forwarding, loop prevention, TLS handshakes, and role-based security boundaries.
+  - Tests local hits, peer forwarding, loop prevention, TLS handshakes, role-based security boundaries, and Folder 6: Sprint 2 CQRS & `/api/v2/unicorns`.
+
+---
+
+## 4. Assignment 2 (Sprint 2) Architecture Features
+
+- **CQRS Pattern**: Segregated Write Model (`AirportCommandHandler`, `FlightRouteCommandHandler`) with JPA optimistic locking (`@Version`) from Read Model (`AirportQueryService`, `FlightRouteQueryService`, `UnicornMoodQueryService`).
+- **AMQP Message Broker (RabbitMQ)**: Replicas publish `DomainEvent` instances to topic exchange `sidis.airports.exchange` and consume via dedicated durable queues (`sidis.airports.replica.<instanceName>`) for eventual consistency.
+- **Mandatory Mock Endpoint (`/api/v2/unicorns`)**: Materialized CQRS read projection maintaining real-time airplane mood states without write locks or database contention.
+- **Database-per-Replica**: Independent PostgreSQL databases (`airports-db-1` on port 5432, `airports-db-2` on port 5435).
