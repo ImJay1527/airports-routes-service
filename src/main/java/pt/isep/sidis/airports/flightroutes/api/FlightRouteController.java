@@ -36,6 +36,9 @@ public class FlightRouteController {
 
     private final FlightRouteService flightRouteService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private pt.isep.sidis.airports.cqrs.commands.FlightRouteCommandHandler flightRouteCommandHandler;
+
     public FlightRouteController(FlightRouteService flightRouteService) {
         this.flightRouteService = flightRouteService;
     }
@@ -52,7 +55,10 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC')")
     @PostMapping
     public ResponseEntity<FlightRouteResponseDTO> createRoute(@Valid @RequestBody CreateFlightRouteDTO dto) {
-        return new ResponseEntity<>(flightRouteService.createFlightRoute(dto), HttpStatus.CREATED);
+        FlightRouteResponseDTO response = (flightRouteCommandHandler != null)
+                ? flightRouteCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.CreateFlightRouteCommand(dto))
+                : flightRouteService.createFlightRoute(dto);
+        return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @Operation(summary = "Get history of a flight route",
@@ -82,7 +88,10 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC') or hasRole('BACKOFFICE_OPERATOR')")
     @PatchMapping("/{id}/deactivate")
     public ResponseEntity<FlightRouteResponseDTO> deactivateRoute(@PathVariable("id") String routeId) {
-        return ResponseEntity.ok(flightRouteService.deactivateRoute(routeId));
+        FlightRouteResponseDTO response = (flightRouteCommandHandler != null)
+                ? flightRouteCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.DeactivateFlightRouteCommand(routeId, "Deactivated by operator"))
+                : flightRouteService.deactivateRoute(routeId);
+        return ResponseEntity.ok(response);
     }
 
     @Operation(summary = "Update a flight route",

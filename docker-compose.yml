@@ -15,6 +15,11 @@
 
 x-common-env: &common-env
   JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: sidis
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-sidis123}
+  RABBITMQ_LISTENER_AUTO_STARTUP: "true"
 
 x-postgres-db: &postgres-db
   image: postgres:16-alpine
@@ -44,6 +49,7 @@ services:
     build: .
     depends_on:
       airports-db-1: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
     ports: ["8082:8082"]
     environment:
       <<: *common-env
@@ -66,6 +72,7 @@ services:
     build: .
     depends_on:
       airports-db-2: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
     ports: ["8092:8082"]
     environment:
       <<: *common-env
@@ -81,6 +88,22 @@ services:
     <<: *postgres-db
     ports: ["5435:5432"]
     volumes: ["airports-db-2-data:/var/lib/postgresql/data"]
+
+  # ---------- Message Broker (RabbitMQ AMQP) ----------
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: sidis-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: sidis
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-sidis123}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   airports-db-1-data:

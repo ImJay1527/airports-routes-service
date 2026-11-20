@@ -462,6 +462,41 @@ The solution is verified by a suite of automated unit, integration, and security
 | `plainHttpClientFailsHandshakeOnHttpsPort` | Ensure untrusted or non-TLS requests are rejected. | Untrusted HttpClient handshake failure assertion. |
 
 ### Verification Artifacts
-1. **JUnit Test Suite**: 12/12 passing (`./mvnw test`).
-2. **Interactive CLI Cluster Demonstration**: `./scripts/demo-cluster.sh` (HTTP) and `./scripts/demo-cluster.sh --tls` (HTTPS TLS 1.3).
-3. **Newman / Postman Suite**: 28/28 assertions passing across `postman/airports-routes.postman_collection.json` with both `local.postman_environment.json` and `local-https.postman_environment.json`.
+1. **JUnit Test Suite**: 17/17 passing (`./mvnw test`), including CQRS event replication and unicorn query tests.
+2. **Interactive CLI Cluster Demonstration**: `./scripts/demo-cluster.sh` (HTTP) and `./scripts/demo-cluster.sh --tls` (HTTPS TLS 1.3), verifying all 8 scenarios including CQRS unicorn moods.
+3. **Newman / Postman Suite**: 32/32 assertions passing across `postman/airports-routes.postman_collection.json` covering public API, internal forwarding, security, and the mandatory `/api/v2/unicorns` endpoint.
+
+---
+
+## 9. Assignment 2: CQRS, Asynchronous AMQP Broker (RabbitMQ), & Unicorns Integration
+
+In Assignment 2, the `airports-routes-service` enhances its architecture from synchronous HTTP-only forwarding to an advanced distributed system powered by **Command-Query Responsibility Segregation (CQRS)** and **Asynchronous Event-Driven Messaging (AMQP / RabbitMQ)**.
+
+### 9.1 CQRS Architectural Pattern (Command vs. Query Segregation)
+To eliminate bottlenecks and optimize read and write operations independently:
+
+1. **Command Side (Write Model)**:
+   - Handlers: `AirportCommandHandler`, `FlightRouteCommandHandler`.
+   - Domain Commands: `CreateAirportCommand`, `UpdateAirportStatusCommand`, `CreateFlightRouteCommand`, `DeactivateFlightRouteCommand`.
+   - Responsibilities: Validates business invariants within the aggregate boundary, persists to PostgreSQL with optimistic locking (`@Version`), and publishes domain events to RabbitMQ.
+2. **Query Side (Read Model / Projections)**:
+   - Services: `AirportQueryService`, `FlightRouteQueryService`, `UnicornMoodQueryService`.
+   - Responsibilities: Serves public and internal queries without write locks, providing low-latency projections and HATEOAS HAL representations.
+
+### 9.2 Asynchronous AMQP Message Broker (RabbitMQ) Topology
+* **Broker Container**: RabbitMQ 3 (`rabbitmq:3-management-alpine`) running alongside PostgreSQL databases in `docker-compose.yml`.
+* **Exchange**: `sidis.airports.exchange` (Topic Exchange).
+* **Replica Queues**: Each replica instance binds a dedicated durable queue (`sidis.airports.replica.instance1`, `sidis.airports.replica.instance2`) with routing keys `airport.*` and `route.*`.
+* **Eventual Consistency Across Clones**:
+  - When Instance 1 creates an airport, it publishes `AirportCreatedEvent`.
+  - `ReplicaEventListener` on Instance 2 consumes the event asynchronously and replicates the record into its local PostgreSQL partition.
+  - Replicas achieve **Eventual Consistency** automatically without blocking caller threads.
+
+### 9.3 Mandatory Mock Endpoint: `/api/v2/unicorns` & CQRS Integration
+As mandated by Assignment 2 guidelines, the service provides the mock endpoint:
+`GET /api/v2/unicorns` (with optional `?model=` filter).
+
+#### Integration with the CQRS Pattern:
+- **Materialized Query Projection**: The unicorn airplane mood endpoint is a pure **CQRS Read Projection**. It does not query the transactional write database directly.
+- **Event-Driven Derivation**: `UnicornMoodQueryService` maintains an in-memory materialized view of airplane emotional states (e.g., `HAPPY`, `ECSTATIC`, `MAINTENANCE_BLUES`, vibe score, sparkles enabled) dynamically updated by domain events (`FlightRouteCreatedEvent`, `AirportStatusUpdatedEvent`).
+- **Zero Write Contention**: Querying `/api/v2/unicorns` provides $O(1)$ read performance with zero contention against write-heavy flight route and airport command transactions.

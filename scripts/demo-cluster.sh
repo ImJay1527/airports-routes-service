@@ -216,6 +216,25 @@ else
   echo -e "  ${RED}FAIL - expected HTTP 200 with _links${RESET}"
 fi
 
+# ------------------------------------------------------------------------------
+# SCENARIO 8: Assignment 2 Mandatory CQRS Unicorn Mood Endpoint
+# ------------------------------------------------------------------------------
+echo -e "${CYAN}${BOLD}[Scenario 8] Assignment 2 CQRS Airplane Mood Projection (/api/v2/unicorns)${RESET}"
+echo "  Goal: Query mandatory mock endpoint returning airplane mood statuses in JSON."
+echo "  Request: GET $INST1/api/v2/unicorns"
+RESP=$(curl -s $CURL_OPT -i "$INST1/api/v2/unicorns")
+HTTP_CODE=$(echo "$RESP" | head -n 1 | awk '{print $2}')
+HAS_MOOD=$(echo "$RESP" | grep -c '"mood"' || true)
+
+echo "  Status Code : $HTTP_CODE"
+echo "  Has mood JSON : $HAS_MOOD"
+
+if [[ "$HTTP_CODE" == "200" && "$HAS_MOOD" -gt 0 ]]; then
+  test_passed "Airplane mood statuses returned successfully via CQRS query projection."
+else
+  echo -e "  ${RED}FAIL - expected HTTP 200 with mood status JSON${RESET}"
+fi
+
 echo -e "${BOLD}${GREEN}"
 echo "================================================================================"
 echo "    ALL DEMONSTRATION SCENARIOS COMPLETED SUCCESSFULLY!                         "

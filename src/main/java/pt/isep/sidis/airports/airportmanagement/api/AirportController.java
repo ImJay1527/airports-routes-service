@@ -41,6 +41,9 @@ public class AirportController {
     private final FlightRouteService flightRouteService;
     private final AirportModelAssembler airportModelAssembler;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private pt.isep.sidis.airports.cqrs.commands.AirportCommandHandler airportCommandHandler;
+
     public AirportController(AirportService airportService, FlightRouteService flightRouteService, AirportModelAssembler airportModelAssembler) {
         this.airportService = airportService;
         this.flightRouteService = flightRouteService;
@@ -51,7 +54,9 @@ public class AirportController {
     @PreAuthorize("hasRole('BACKOFFICE_OPERATOR')")
     @Operation(summary = "US106 - Create a new Airport")
     public ResponseEntity<AirportViewDTO> createAirport(@Valid @RequestBody CreateAirportRequestDTO request) {
-        Airport createdAirport = airportService.createAirport(request);
+        Airport createdAirport = (airportCommandHandler != null)
+                ? airportCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.CreateAirportCommand(request))
+                : airportService.createAirport(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(airportModelAssembler.toModel(createdAirport));
     }
 
@@ -111,7 +116,9 @@ public class AirportController {
             @PathVariable("iataCode") String iataCode,
             @Valid @RequestBody ChangeAirportStatusDTO dto) {
 
-        Airport updatedAirport = airportService.changeOperationalStatus(iataCode, dto.getNewStatus(), dto.getVersion());
+        Airport updatedAirport = (airportCommandHandler != null)
+                ? airportCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.UpdateAirportStatusCommand(iataCode, dto.getNewStatus()))
+                : airportService.changeOperationalStatus(iataCode, dto.getNewStatus(), dto.getVersion());
         return ResponseEntity.ok(airportModelAssembler.toModel(updatedAirport));
     }
 

@@ -504,6 +504,85 @@
           }
         }
       ]
+    },
+    {
+      "name": "6. Sprint 2 - CQRS & Unicorns",
+      "item": [
+        {
+          "name": "GET All Airplane Moods (CQRS Query Projection)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response is a list of airplane moods', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array');",
+                  "    pm.expect(json.length).to.be.at.least(3);",
+                  "});",
+                  "pm.test('Mood objects carry CQRS projection metadata', function () {",
+                  "    var plane = pm.response.json()[0];",
+                  "    pm.expect(plane).to.have.property('airplaneModel');",
+                  "    pm.expect(plane).to.have.property('mood');",
+                  "    pm.expect(plane).to.have.property('vibeScore');",
+                  "    pm.expect(plane).to.have.property('cqrsRole');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instance1}}/api/v2/unicorns",
+              "host": ["{{instance1}}"],
+              "path": ["api", "v2", "unicorns"]
+            }
+          }
+        },
+        {
+          "name": "GET Airplane Mood by Model (A320neo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Model is A320neo with ECSTATIC mood', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json[0].airplaneModel).to.eql('A320neo');",
+                  "    pm.expect(json[0].mood).to.eql('ECSTATIC');",
+                  "    pm.expect(json[0].sparklesEnabled).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instance1}}/api/v2/unicorns?model=A320neo",
+              "host": ["{{instance1}}"],
+              "path": ["api", "v2", "unicorns"],
+              "query": [
+                {
+                  "key": "model",
+                  "value": "A320neo"
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   ]
 }
