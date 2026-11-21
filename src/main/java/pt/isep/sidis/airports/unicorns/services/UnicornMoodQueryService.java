@@ -26,6 +26,7 @@ import java.util.*;
  * - Persisted in the dedicated 'unicorn_airplane_moods' table (survives restarts).
  * - Decoupled from transactional write models.
  * - Updated asynchronously via domain events (CQRS Read Projection).
+ * - Mood status is evaluated per airplane model, using only real aircraft registrations when known.
  */
 @Service
 public class UnicornMoodQueryService {
@@ -92,7 +93,9 @@ public class UnicornMoodQueryService {
                     ? "Operating smoothly on " + activeRoutesCount + " active routes with certified base at " + baseAirport + "."
                     : "Temporarily grounded or limited at " + baseAirport + " due to airport maintenance.";
 
-            String reg = generateRegistration(model);
+            // Preserve real registration if already recorded, otherwise null (mood by model)
+            Optional<UnicornMoodEntity> existing = moodRepository.findById(model);
+            String reg = existing.map(UnicornMoodEntity::getRegistration).orElse(null);
 
             UnicornMoodEntity entity = UnicornMoodEntity.builder()
                     .airplaneModel(model)
@@ -125,6 +128,35 @@ public class UnicornMoodQueryService {
         return moodRepository.findById(model)
                 .or(() -> moodRepository.findByRegistrationIgnoreCase(model))
                 .map(UnicornMoodEntity::toDTO);
+    }
+
+    @Transactional
+    public void recordRealAircraft(String registration, String modelCode, String status) {
+        if (modelCode == null || modelCode.isBlank()) return;
+        log.info("Projecting unicorn mood from real aircraft event: {} ({}) with status {}", registration, modelCode, status);
+
+        UnicornMoodEntity entity = moodRepository.findById(modelCode).orElseGet(() ->
+                UnicornMoodEntity.builder()
+                        .airplaneModel(modelCode)
+                        .cqrsRole("CQRS Read Projection (Event-driven persistent view)")
+                        .build()
+        );
+
+        entity.setRegistration(registration);
+        boolean underMaint = "UNDER_MAINTENANCE".equalsIgnoreCase(status) || "INACTIVE".equalsIgnoreCase(status);
+        if (underMaint) {
+            entity.setMood("MAINTENANCE_BLUES");
+            entity.setVibeScore(5.0);
+            entity.setSparklesEnabled(false);
+            entity.setStatusMessage("Real aircraft " + registration + " (" + modelCode + ") undergoing TLC.");
+        } else {
+            entity.setMood("ECSTATIC");
+            entity.setVibeScore(9.8);
+            entity.setSparklesEnabled(true);
+            entity.setStatusMessage("Real aircraft " + registration + " (" + modelCode + ") airworthy and flying.");
+        }
+        entity.setLastUpdated(Instant.now());
+        moodRepository.save(entity);
     }
 
     @Transactional
@@ -173,7 +205,6 @@ public class UnicornMoodQueryService {
         UnicornMoodEntity entity = moodRepository.findById(model).orElseGet(() ->
                 UnicornMoodEntity.builder()
                         .airplaneModel(model)
-                        .registration(generateRegistration(model))
                         .build()
         );
         entity.setLastKnownAirport(iata);
@@ -184,15 +215,5 @@ public class UnicornMoodQueryService {
         entity.setCqrsRole("CQRS Read Projection (Event-driven persistent view)");
         entity.setLastUpdated(Instant.now());
         moodRepository.save(entity);
-    }
-
-    private String generateRegistration(String model) {
-        return switch (model.toUpperCase()) {
-            case "A320NEO" -> "CS-TND";
-            case "737 MAX", "B737" -> "CS-TNK";
-            case "A330-900NEO", "A330" -> "CS-TUQ";
-            case "EMBRAER 190", "E190" -> "CS-TPO";
-            default -> "CS-" + Math.abs(model.hashCode() % 900 + 100);
-        };
     }
 }

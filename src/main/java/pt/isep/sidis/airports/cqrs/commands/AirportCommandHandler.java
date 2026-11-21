@@ -6,10 +6,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pt.isep.sidis.airports.airportmanagement.domain.AirplaneCertification;
 import pt.isep.sidis.airports.airportmanagement.domain.Airport;
+import pt.isep.sidis.airports.airportmanagement.domain.Contact;
+import pt.isep.sidis.airports.airportmanagement.services.AirportImportResult;
 import pt.isep.sidis.airports.airportmanagement.services.AirportService;
 import pt.isep.sidis.airports.events.AirportCertificationAddedEvent;
 import pt.isep.sidis.airports.events.AirportCreatedEvent;
 import pt.isep.sidis.airports.events.AirportStatusUpdatedEvent;
+import pt.isep.sidis.airports.events.AirportUpdatedEvent;
 import pt.isep.sidis.airports.messaging.EventPublisher;
 
 import java.util.List;
@@ -54,11 +57,35 @@ public class AirportCommandHandler {
     }
 
     @Transactional
+    public AirportImportResult handle(ImportAirportsCommand command) {
+        log.info("CQRS Command: Bulk importing airports from CSV");
+        AirportImportResult result = airportService.importAirportsFromCsv(command.getFile());
+
+        for (Airport imported : result.getCreatedAirports()) {
+            List<String> models = imported.getCertifications() != null ?
+                    imported.getCertifications().stream().map(AirplaneCertification::getModelName).toList() : List.of();
+
+            AirportCreatedEvent event = new AirportCreatedEvent(
+                    null,
+                    imported.getIataCode().getCode(),
+                    imported.getName(),
+                    imported.getLocation() != null ? imported.getLocation().getCity() : null,
+                    imported.getLocation() != null ? imported.getLocation().getCountry() : null,
+                    imported.getStatus() != null ? imported.getStatus().name() : "OPERATIONAL",
+                    models
+            );
+            eventPublisher.publish("airport.created", event);
+            log.info("Published airport.created event for imported airport {}", imported.getIataCode().getCode());
+        }
+
+        return result;
+    }
+
+    @Transactional
     public Airport handle(UpdateAirportStatusCommand command) {
         log.info("CQRS Command: Updating status of airport {} to {} with version {}",
                 command.getIataCode(), command.getNewStatus(), command.getVersion());
 
-        // Respect optimistic locking: if command provides version, use it directly
         Airport updated = airportService.changeOperationalStatus(
                 command.getIataCode(),
                 command.getNewStatus(),
@@ -108,14 +135,28 @@ public class AirportCommandHandler {
         List<String> models = updated.getCertifications() != null ?
                 updated.getCertifications().stream().map(AirplaneCertification::getModelName).toList() : List.of();
 
-        AirportCreatedEvent event = new AirportCreatedEvent(
+        String opening = (updated.getOperationalHours() != null && updated.getOperationalHours().getOpeningTime() != null)
+                ? updated.getOperationalHours().getOpeningTime().toString() : null;
+        String closing = (updated.getOperationalHours() != null && updated.getOperationalHours().getClosingTime() != null)
+                ? updated.getOperationalHours().getClosingTime().toString() : null;
+
+        List<AirportUpdatedEvent.ContactEntry> contacts = (updated.getContacts() != null)
+                ? updated.getContacts().stream()
+                    .map(c -> new AirportUpdatedEvent.ContactEntry(c.getValue(), c.getDepartment(), c.getType() != null ? c.getType().name() : null))
+                    .toList()
+                : List.of();
+
+        AirportUpdatedEvent event = new AirportUpdatedEvent(
                 null,
                 updated.getIataCode().getCode(),
                 updated.getName(),
                 updated.getLocation() != null ? updated.getLocation().getCity() : null,
                 updated.getLocation() != null ? updated.getLocation().getCountry() : null,
                 updated.getStatus() != null ? updated.getStatus().name() : "OPERATIONAL",
-                models
+                models,
+                opening,
+                closing,
+                contacts
         );
 
         eventPublisher.publish("airport.updated", event);

@@ -81,25 +81,7 @@ public class AirportController {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "At least one airport was created (check 'errors' for any row that failed)")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "File missing/empty, or no row could be imported")
     public ResponseEntity<ImportAirportsResponseDTO> importAirports(@RequestParam("file") MultipartFile file) {
-
-        AirportImportResult result = airportService.importAirportsFromCsv(file);
-
-        // Publish event for each newly imported airport to notify replicas and peer services
-        for (Airport imported : result.getCreatedAirports()) {
-            List<String> models = imported.getCertifications() != null ?
-                    imported.getCertifications().stream().map(AirplaneCertification::getModelName).toList() : List.of();
-
-            AirportCreatedEvent event = new AirportCreatedEvent(
-                    null,
-                    imported.getIataCode().getCode(),
-                    imported.getName(),
-                    imported.getLocation() != null ? imported.getLocation().getCity() : null,
-                    imported.getLocation() != null ? imported.getLocation().getCountry() : null,
-                    imported.getStatus() != null ? imported.getStatus().name() : "OPERATIONAL",
-                    models
-            );
-            eventPublisher.publish("airport.created", event);
-        }
+        AirportImportResult result = airportCommandHandler.handle(new ImportAirportsCommand(file));
 
         CollectionModel<AirportViewDTO> createdModel = airportModelAssembler.toCollectionModel(result.getCreatedAirports());
 

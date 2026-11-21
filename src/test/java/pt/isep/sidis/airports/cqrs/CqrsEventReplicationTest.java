@@ -1,6 +1,8 @@
 package pt.isep.sidis.airports.cqrs;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.Message;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -37,6 +39,9 @@ class CqrsEventReplicationTest {
     @Autowired
     private ReplicaEventListener replicaEventListener;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockBean
     private EventPublisher eventPublisher;
 
@@ -69,7 +74,7 @@ class CqrsEventReplicationTest {
     }
 
     @Test
-    void testReplicaEventListenerProcessesReplication() {
+    void testReplicaEventListenerProcessesReplication() throws Exception {
         // Simulate an event arriving from peer instance2 for a new airport
         AirportCreatedEvent peerEvent = new AirportCreatedEvent(
                 "instance2",
@@ -81,7 +86,9 @@ class CqrsEventReplicationTest {
                 List.of("A320neo")
         );
 
-        replicaEventListener.handleDomainEvent(peerEvent);
+        byte[] body = objectMapper.writeValueAsBytes(peerEvent);
+        Message message = new Message(body);
+        replicaEventListener.handleMessage(message, "airport.created");
 
         // Verify that the local database now has Santa Maria airport asynchronously replicated
         Optional<Airport> replicated = airportRepository.findByIataCode_Code("SMA");

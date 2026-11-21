@@ -72,8 +72,8 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public Binding bindingFlightEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
-        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("flight.#");
+    public Binding bindingAircraftEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
+        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("aircraft.created");
     }
 
     @Bean

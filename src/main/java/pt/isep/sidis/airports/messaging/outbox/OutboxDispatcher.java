@@ -83,11 +83,7 @@ public class OutboxDispatcher {
 
                     rabbitTemplate.invoke(operations -> {
                         operations.send(exchangeName, event.getRoutingKey(), message);
-                        try {
-                            operations.waitForConfirmsOrDie(5000);
-                        } catch (IllegalStateException ise) {
-                            // Confirms not enabled on connection factory; message was sent directly
-                        }
+                        operations.waitForConfirmsOrDie(5000);
                         return null;
                     });
 

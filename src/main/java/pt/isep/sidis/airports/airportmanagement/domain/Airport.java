@@ -37,6 +37,9 @@ public class Airport {
     @Enumerated(EnumType.STRING)
     private Status status;
 
+    @Column(name = "last_status_change_at")
+    private java.time.Instant lastStatusChangeAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     private List<AirplaneCertification> certifications = new ArrayList<>();
 
@@ -107,6 +110,10 @@ public class Airport {
     }
 
     public void changeStatus(Status newStatus) {
+        changeStatus(newStatus, java.time.Instant.now());
+    }
+
+    public void changeStatus(Status newStatus, java.time.Instant timestamp) {
         if (newStatus == null) {
             throw new IllegalArgumentException("The new state cannot be null.");
         }
@@ -114,6 +121,7 @@ public class Airport {
             throw new IllegalArgumentException("The airport is already in that state " + newStatus);
         }
         this.status = newStatus;
+        this.lastStatusChangeAt = (timestamp != null) ? timestamp : java.time.Instant.now();
     }
 
     public void addCertification(String modelName) {
