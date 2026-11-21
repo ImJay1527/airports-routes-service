@@ -1,6 +1,9 @@
 package pt.isep.sidis.airports.messaging;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -13,39 +16,73 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitMQConfig {
 
-    public static final String AIRPORT_ROUTING_KEY_PREFIX = "airport.";
-    public static final String ROUTE_ROUTING_KEY_PREFIX = "route.";
+    public static final String EXCHANGE_NAME = "aisafe.events";
+    public static final String DLX_NAME = "aisafe.dlx";
+    public static final String DLQ_NAME = "airports.events.dlq";
 
-    @Value("${sidis.rabbitmq.exchange:sidis.airports.exchange}")
-    private String exchangeName;
-
-    @Value("${airports.instance-name:instance1}")
-    private String instanceName;
+    public static final String ROUTING_KEY_AIRPORT_CREATED = "airport.created";
+    public static final String ROUTING_KEY_AIRPORT_STATUS = "airport.status.changed";
+    public static final String ROUTING_KEY_AIRPORT_CERTIFICATION = "airport.certification.added";
+    public static final String ROUTING_KEY_ROUTE_CREATED = "route.created";
+    public static final String ROUTING_KEY_ROUTE_UPDATED = "route.updated";
+    public static final String ROUTING_KEY_ROUTE_DEACTIVATED = "route.deactivated";
 
     @Bean
-    public TopicExchange airportsExchange() {
+    public TopicExchange aisafeExchange(@Value("${aisafe.rabbitmq.exchange:${sidis.rabbitmq.exchange:" + EXCHANGE_NAME + "}}") String exchangeName) {
         return new TopicExchange(exchangeName, true, false);
     }
 
     @Bean
-    public Queue replicaQueue() {
-        // Unique durable queue for this replica instance
-        return new Queue("sidis.airports.replica." + instanceName, true, false, false);
+    public TopicExchange deadLetterExchange() {
+        return new TopicExchange(DLX_NAME, true, false);
     }
 
     @Bean
-    public Binding bindingAirportEvents(Queue replicaQueue, TopicExchange airportsExchange) {
-        return BindingBuilder.bind(replicaQueue).to(airportsExchange).with("airport.*");
+    public Queue deadLetterQueue() {
+        return QueueBuilder.durable(DLQ_NAME).build();
     }
 
     @Bean
-    public Binding bindingRouteEvents(Queue replicaQueue, TopicExchange airportsExchange) {
-        return BindingBuilder.bind(replicaQueue).to(airportsExchange).with("route.*");
+    public Binding deadLetterBinding(Queue deadLetterQueue, TopicExchange deadLetterExchange) {
+        return BindingBuilder.bind(deadLetterQueue).to(deadLetterExchange).with(DLQ_NAME);
+    }
+
+    /**
+     * Dedicated queue per replica instance (Publish/Subscribe pattern).
+     * Configured with DLX, DLQ routing, message TTL, and max-length to fulfill Point 5.
+     */
+    @Bean
+    public Queue replicaQueue(@Value("${airports.instance-name:instance1}") String instanceName) {
+        return QueueBuilder.durable("airports.events." + instanceName)
+                .withArgument("x-dead-letter-exchange", DLX_NAME)
+                .withArgument("x-dead-letter-routing-key", DLQ_NAME)
+                .withArgument("x-max-length", 1000)
+                .withArgument("x-message-ttl", 86400000)
+                .build();
     }
 
     @Bean
-    public MessageConverter jsonMessageConverter(ObjectMapper objectMapper) {
-        return new Jackson2JsonMessageConverter(objectMapper);
+    public Binding bindingAirportEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
+        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("airport.#");
+    }
+
+    @Bean
+    public Binding bindingRouteEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
+        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("route.#");
+    }
+
+    @Bean
+    public Binding bindingFlightEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
+        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("flight.#");
+    }
+
+    @Bean
+    public MessageConverter jsonMessageConverter() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return new Jackson2JsonMessageConverter(mapper);
     }
 
     @Bean

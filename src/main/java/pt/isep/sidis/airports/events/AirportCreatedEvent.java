@@ -21,7 +21,7 @@ public class AirportCreatedEvent extends DomainEvent {
     public AirportCreatedEvent(String sourceInstance, String iataCode, String name,
                                String city, String country, String status,
                                List<String> certifiedModels) {
-        super("AIRPORT_CREATED", sourceInstance);
+        super("AirportCreatedEvent", sourceInstance);
         this.iataCode = iataCode;
         this.name = name;
         this.city = city;

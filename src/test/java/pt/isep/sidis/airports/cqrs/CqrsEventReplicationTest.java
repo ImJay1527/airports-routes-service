@@ -62,10 +62,10 @@ class CqrsEventReplicationTest {
         // Verify that domain event was published to RabbitMQ topic
         verify(eventPublisher).publish(eq("airport.created"), any(AirportCreatedEvent.class));
 
-        // Test update status
-        Airport updated = airportCommandHandler.handle(new UpdateAirportStatusCommand("VRL", "UNDER_MAINTENANCE"));
+        // Test update status with proper routing key
+        Airport updated = airportCommandHandler.handle(new UpdateAirportStatusCommand("VRL", "UNDER_MAINTENANCE", created.getVersion()));
         assertEquals(Status.UNDER_MAINTENANCE, updated.getStatus());
-        verify(eventPublisher).publish(eq("airport.status"), any());
+        verify(eventPublisher).publish(eq("airport.status.changed"), any());
     }
 
     @Test

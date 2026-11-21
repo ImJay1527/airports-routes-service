@@ -13,7 +13,7 @@ public class FlightRouteDeactivatedEvent extends DomainEvent {
     private String reason;
 
     public FlightRouteDeactivatedEvent(String sourceInstance, String routeId, String reason) {
-        super("FLIGHT_ROUTE_DEACTIVATED", sourceInstance);
+        super("FlightRouteDeactivatedEvent", sourceInstance);
         this.routeId = routeId;
         this.reason = reason;
     }

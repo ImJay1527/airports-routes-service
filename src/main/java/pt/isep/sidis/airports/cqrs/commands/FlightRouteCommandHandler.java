@@ -6,13 +6,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pt.isep.sidis.airports.events.FlightRouteCreatedEvent;
 import pt.isep.sidis.airports.events.FlightRouteDeactivatedEvent;
+import pt.isep.sidis.airports.events.FlightRouteUpdatedEvent;
 import pt.isep.sidis.airports.flightroutes.api.dto.FlightRouteResponseDTO;
 import pt.isep.sidis.airports.flightroutes.services.FlightRouteService;
 import pt.isep.sidis.airports.messaging.EventPublisher;
 
 /**
  * CQRS Command Handler for Flight Route write operations.
- * Enforces business rules and publishes domain events to RabbitMQ.
+ * Enforces business rules and publishes domain events to RabbitMQ via Transactional Outbox.
  */
 @Service
 public class FlightRouteCommandHandler {
@@ -41,12 +42,35 @@ public class FlightRouteCommandHandler {
                 command.getRequestDTO().getOriginIata(),
                 command.getRequestDTO().getDestinationIata(),
                 created.getDistance(),
+                command.getRequestDTO().getMinRangeRequired(),
+                command.getRequestDTO().getMinCapacityRequired(),
                 created.getEstimatedFlightTime(),
                 created.getRouteStatus() != null ? created.getRouteStatus().name() : "ACTIVE"
         );
 
         eventPublisher.publish("route.created", event);
         return created;
+    }
+
+    @Transactional
+    public FlightRouteResponseDTO handle(UpdateFlightRouteCommand command) {
+        log.info("CQRS Command: Updating flight route {}", command.getRouteId());
+        FlightRouteResponseDTO updated = flightRouteService.updateRoute(command.getRouteId(), command.getDto());
+
+        FlightRouteUpdatedEvent event = new FlightRouteUpdatedEvent(
+                null,
+                updated.getRouteId(),
+                updated.getOriginIataCode(),
+                updated.getDestinationIataCode(),
+                updated.getDistance(),
+                command.getDto().getMinRangeRequired(),
+                command.getDto().getMinCapacityRequired(),
+                updated.getEstimatedFlightTime(),
+                updated.getRouteStatus() != null ? updated.getRouteStatus().name() : "ACTIVE"
+        );
+
+        eventPublisher.publish("route.updated", event);
+        return updated;
     }
 
     @Transactional

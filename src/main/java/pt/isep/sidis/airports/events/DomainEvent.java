@@ -1,6 +1,7 @@
 package pt.isep.sidis.airports.events;
 
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -10,16 +11,18 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Base domain event for all asynchronous AMQP event broadcasting.
+ * Base domain event for all AMQP event broadcasting.
+ * Serialized as plain JSON without __TypeId__ or Java class metadata.
  */
 @Getter
 @Setter
 @NoArgsConstructor
-@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "@type")
+@JsonIgnoreProperties(ignoreUnknown = true)
 public abstract class DomainEvent implements Serializable {
 
     private String eventId = UUID.randomUUID().toString();
     private String eventType;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant occurredAt = Instant.now();
     private String sourceInstance;
 

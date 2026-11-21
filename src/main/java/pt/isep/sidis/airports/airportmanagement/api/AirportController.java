@@ -16,11 +16,16 @@ import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.PagedModel;
 import org.springframework.security.access.prepost.PreAuthorize;
 import pt.isep.sidis.airports.airportmanagement.api.dto.*;
+import pt.isep.sidis.airports.airportmanagement.domain.AirplaneCertification;
 import pt.isep.sidis.airports.airportmanagement.domain.Airport;
 import pt.isep.sidis.airports.airportmanagement.services.AirportImportResult;
 import pt.isep.sidis.airports.airportmanagement.services.AirportService;
+import pt.isep.sidis.airports.cqrs.commands.*;
+import pt.isep.sidis.airports.cqrs.queries.AirportQueryService;
+import pt.isep.sidis.airports.cqrs.queries.FlightRouteQueryService;
+import pt.isep.sidis.airports.events.AirportCreatedEvent;
 import pt.isep.sidis.airports.flightroutes.api.dto.FlightRouteResponseDTO;
-import pt.isep.sidis.airports.flightroutes.services.FlightRouteService;
+import pt.isep.sidis.airports.messaging.EventPublisher;
 
 import java.util.List;
 
@@ -38,25 +43,31 @@ import java.util.Map;
 public class AirportController {
 
     private final AirportService airportService;
-    private final FlightRouteService flightRouteService;
+    private final AirportQueryService airportQueryService;
+    private final FlightRouteQueryService flightRouteQueryService;
     private final AirportModelAssembler airportModelAssembler;
+    private final AirportCommandHandler airportCommandHandler;
+    private final EventPublisher eventPublisher;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private pt.isep.sidis.airports.cqrs.commands.AirportCommandHandler airportCommandHandler;
-
-    public AirportController(AirportService airportService, FlightRouteService flightRouteService, AirportModelAssembler airportModelAssembler) {
+    public AirportController(AirportService airportService,
+                             AirportQueryService airportQueryService,
+                             FlightRouteQueryService flightRouteQueryService,
+                             AirportModelAssembler airportModelAssembler,
+                             AirportCommandHandler airportCommandHandler,
+                             EventPublisher eventPublisher) {
         this.airportService = airportService;
-        this.flightRouteService = flightRouteService;
+        this.airportQueryService = airportQueryService;
+        this.flightRouteQueryService = flightRouteQueryService;
         this.airportModelAssembler = airportModelAssembler;
+        this.airportCommandHandler = airportCommandHandler;
+        this.eventPublisher = eventPublisher;
     }
 
     @PostMapping
     @PreAuthorize("hasRole('BACKOFFICE_OPERATOR')")
-    @Operation(summary = "US106 - Create a new Airport")
+    @Operation(summary = "US106 - Create a new Airport (CQRS Command)")
     public ResponseEntity<AirportViewDTO> createAirport(@Valid @RequestBody CreateAirportRequestDTO request) {
-        Airport createdAirport = (airportCommandHandler != null)
-                ? airportCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.CreateAirportCommand(request))
-                : airportService.createAirport(request);
+        Airport createdAirport = airportCommandHandler.handle(new CreateAirportCommand(request));
         return ResponseEntity.status(HttpStatus.CREATED).body(airportModelAssembler.toModel(createdAirport));
     }
 
@@ -73,6 +84,23 @@ public class AirportController {
 
         AirportImportResult result = airportService.importAirportsFromCsv(file);
 
+        // Publish event for each newly imported airport to notify replicas and peer services
+        for (Airport imported : result.getCreatedAirports()) {
+            List<String> models = imported.getCertifications() != null ?
+                    imported.getCertifications().stream().map(AirplaneCertification::getModelName).toList() : List.of();
+
+            AirportCreatedEvent event = new AirportCreatedEvent(
+                    null,
+                    imported.getIataCode().getCode(),
+                    imported.getName(),
+                    imported.getLocation() != null ? imported.getLocation().getCity() : null,
+                    imported.getLocation() != null ? imported.getLocation().getCountry() : null,
+                    imported.getStatus() != null ? imported.getStatus().name() : "OPERATIONAL",
+                    models
+            );
+            eventPublisher.publish("airport.created", event);
+        }
+
         CollectionModel<AirportViewDTO> createdModel = airportModelAssembler.toCollectionModel(result.getCreatedAirports());
 
         ImportAirportsResponseDTO response = new ImportAirportsResponseDTO(
@@ -84,58 +112,53 @@ public class AirportController {
 
     @GetMapping("/{iataCode}")
     @PreAuthorize("hasAnyRole('BACKOFFICE_OPERATOR', 'ATCC')")
-    @Operation(summary = "US107 - Get details of a specific Airport by IATA Code")
+    @Operation(summary = "US107 - Get details of a specific Airport (CQRS Query)")
     public ResponseEntity<AirportViewDTO> getAirportDetails(@PathVariable("iataCode") String iataCode) {
-        Airport airport = airportService.getAirportDetails(iataCode);
+        Airport airport = airportQueryService.getAirportByIata(iataCode);
         return ResponseEntity.ok(airportModelAssembler.toModel(airport));
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ATCC', 'BACKOFFICE_OPERATOR')")
-    @Operation(summary = "US108 - Search Airports by city, country, or name, or list all airports")
-    public ResponseEntity<CollectionModel<AirportViewDTO>> searchAirports(
-            @RequestParam(value = "city", required = false) String city,
-            @RequestParam(value = "country", required = false) String country,
-            @RequestParam(value = "name", required = false) String name) {
-        
-        List<Airport> airports;
-        if ((city == null || city.trim().isEmpty()) && 
-            (country == null || country.trim().isEmpty()) && 
-            (name == null || name.trim().isEmpty())) {
-            airports = airportService.getAllAirports();
-        } else {
-            airports = airportService.searchAirports(city, country, name);
-        }
+    @PreAuthorize("hasAnyRole('BACKOFFICE_OPERATOR', 'ATCC')")
+    @Operation(summary = "US108 - View a list of airports with optional filtering (CQRS Query)")
+    public ResponseEntity<CollectionModel<AirportViewDTO>> getAllAirports(
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String name) {
+
+        List<Airport> airports = airportQueryService.searchAirports(city, country, name);
         return ResponseEntity.ok(airportModelAssembler.toCollectionModel(airports));
     }
 
     @PatchMapping("/{iataCode}/status")
     @PreAuthorize("hasRole('BACKOFFICE_OPERATOR')")
-    @Operation(summary = "US109 - Change the operational status of an Airport")
+    @Operation(summary = "US109 - Change the operational status of an Airport (CQRS Command with Optimistic Locking)")
     public ResponseEntity<AirportViewDTO> changeOperationalStatus(
             @PathVariable("iataCode") String iataCode,
             @Valid @RequestBody ChangeAirportStatusDTO dto) {
 
-        Airport updatedAirport = (airportCommandHandler != null)
-                ? airportCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.UpdateAirportStatusCommand(iataCode, dto.getNewStatus()))
-                : airportService.changeOperationalStatus(iataCode, dto.getNewStatus(), dto.getVersion());
+        Airport updatedAirport = airportCommandHandler.handle(
+                new UpdateAirportStatusCommand(iataCode, dto.getNewStatus(), dto.getVersion())
+        );
         return ResponseEntity.ok(airportModelAssembler.toModel(updatedAirport));
     }
 
     @PostMapping("/{iataCode}/certifications")
     @PreAuthorize("hasAnyRole('BACKOFFICE_OPERATOR', 'ATCC')")
-    @Operation(summary = "US106a - Add an airplane certification to an Airport")
+    @Operation(summary = "US106a - Add an airplane certification to an Airport (CQRS Command)")
     public ResponseEntity<AirportViewDTO> addAirplaneCertification(
             @PathVariable("iataCode") String iataCode,
             @Valid @RequestBody pt.isep.sidis.airports.airportmanagement.api.dto.AddCertificationDTO dto) {
 
-        Airport updatedAirport = airportService.addAirplaneCertification(iataCode, dto.getAircraftModelName(), dto.getVersion());
+        Airport updatedAirport = airportCommandHandler.handle(
+                new AddAirportCertificationCommand(iataCode, dto.getAircraftModelName(), dto.getVersion())
+        );
         return ResponseEntity.ok(airportModelAssembler.toModel(updatedAirport));
     }
 
     @PatchMapping("/{iataCode}/details")
     @PreAuthorize("hasRole('BACKOFFICE_OPERATOR')")
-    @Operation(summary = "US208 - Update airport details including operational hours and contact information")
+    @Operation(summary = "US208 - Update airport details including operational hours and contact information (CQRS Command)")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Airport details updated successfully")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input data")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Airport not found")
@@ -143,13 +166,15 @@ public class AirportController {
             @PathVariable("iataCode") String iataCode,
             @Valid @RequestBody UpdateAirportDetailsRequestDTO dto) {
 
-        Airport updatedAirport = airportService.updateAirportDetails(iataCode, dto);
+        Airport updatedAirport = airportCommandHandler.handle(
+                new UpdateAirportDetailsCommand(iataCode, dto)
+        );
         return ResponseEntity.ok(airportModelAssembler.toModel(updatedAirport));
     }
 
     @PreAuthorize("hasRole('ATCC')")
     @GetMapping("/{iataCode}/routes")
-    @Operation(summary = "US209 - View all routes that depart from or arrive at a specific airport")
+    @Operation(summary = "US209 - View all routes that depart from or arrive at a specific airport (CQRS Query)")
     public ResponseEntity<PagedModel<EntityModel<FlightRouteResponseDTO>>> getRoutesByAirport(
             @PathVariable("iataCode") String iataCode,
             @RequestParam(defaultValue = "0") int page,
@@ -157,46 +182,46 @@ public class AirportController {
             PagedResourcesAssembler<FlightRouteResponseDTO> pagedAssembler) {
 
         Pageable pageable = PageRequest.of(page, size);
-        Page<FlightRouteResponseDTO> responsePage = flightRouteService.getRoutesByAirport(iataCode, pageable);
+        Page<FlightRouteResponseDTO> responsePage = flightRouteQueryService.getRoutesByAirport(iataCode, pageable);
 
         return ResponseEntity.ok(pagedAssembler.toModel(responsePage));
     }
 
     @PreAuthorize("hasRole('BACKOFFICE_OPERATOR')")
     @GetMapping("/statistics/busiest")
-    @Operation(summary = "US210 - Generate statistics on the busiest airports by number of routes")
+    @Operation(summary = "US210 - Generate statistics on the busiest airports by number of routes (CQRS Query)")
     public ResponseEntity<CollectionModel<BusiestAirportDTO>> getBusiestAirports() {
-        List<BusiestAirportDTO> stats = flightRouteService.getBusiestAirports();
-        
-        stats.forEach(dto -> 
-            dto.add(linkTo(methodOn(AirportController.class).getAirportDetails(dto.getIataCode())).withRel("airport_details"))
+        List<BusiestAirportDTO> stats = flightRouteQueryService.getBusiestAirports();
+
+        stats.forEach(dto ->
+                dto.add(linkTo(methodOn(AirportController.class).getAirportDetails(dto.getIataCode())).withRel("airport_details"))
         );
 
-        CollectionModel<BusiestAirportDTO> model = CollectionModel.of(stats, 
-            linkTo(methodOn(AirportController.class).getBusiestAirports()).withSelfRel());
-            
+        CollectionModel<BusiestAirportDTO> model = CollectionModel.of(stats,
+                linkTo(methodOn(AirportController.class).getBusiestAirports()).withSelfRel());
+
         return ResponseEntity.ok(model);
     }
 
     @PreAuthorize("hasRole('ATCC')")
     @GetMapping("/grouped")
-    @Operation(summary = "US211 - View airports grouped by region or country")
+    @Operation(summary = "US211 - View airports grouped by region or country (CQRS Query)")
     public ResponseEntity<Map<String, CollectionModel<AirportViewDTO>>> getAirportsGroupedBy(
             @RequestParam(value = "groupBy") String groupBy) {
 
-        Map<String, List<Airport>> groupedAirports = airportService.getAirportsGroupedBy(groupBy);
-        
+        Map<String, List<Airport>> groupedAirports = airportQueryService.getAirportsGroupedBy(groupBy);
+
         Map<String, CollectionModel<AirportViewDTO>> responseMap = groupedAirports.entrySet().stream()
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                entry -> {
-                    List<AirportViewDTO> dtos = entry.getValue().stream()
-                        .map(airportModelAssembler::toModel)
-                        .toList();
-                    return CollectionModel.of(dtos);
-                }
-            ));
-            
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> {
+                            List<AirportViewDTO> dtos = entry.getValue().stream()
+                                    .map(airportModelAssembler::toModel)
+                                    .toList();
+                            return CollectionModel.of(dtos);
+                        }
+                ));
+
         return ResponseEntity.ok(responseMap);
     }
 }

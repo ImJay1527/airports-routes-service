@@ -13,7 +13,7 @@ public class AirportStatusUpdatedEvent extends DomainEvent {
     private String newStatus;
 
     public AirportStatusUpdatedEvent(String sourceInstance, String iataCode, String newStatus) {
-        super("AIRPORT_STATUS_UPDATED", sourceInstance);
+        super("AirportStatusChangedEvent", sourceInstance);
         this.iataCode = iataCode;
         this.newStatus = newStatus;
     }

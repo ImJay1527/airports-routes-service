@@ -16,13 +16,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import pt.isep.sidis.airports.cqrs.commands.CreateFlightRouteCommand;
+import pt.isep.sidis.airports.cqrs.commands.DeactivateFlightRouteCommand;
+import pt.isep.sidis.airports.cqrs.commands.FlightRouteCommandHandler;
+import pt.isep.sidis.airports.cqrs.commands.UpdateFlightRouteCommand;
+import pt.isep.sidis.airports.cqrs.queries.FlightRouteQueryService;
 import pt.isep.sidis.airports.flightroutes.api.dto.AlternativeRouteResponseDTO;
 import pt.isep.sidis.airports.flightroutes.api.dto.CreateFlightRouteDTO;
 import pt.isep.sidis.airports.flightroutes.api.dto.FlightRouteResponseDTO;
 import pt.isep.sidis.airports.flightroutes.api.dto.NetworkDistanceResponseDTO;
 import pt.isep.sidis.airports.flightroutes.api.dto.UpdateFlightRouteDTO;
 import pt.isep.sidis.airports.flightroutes.domain.RouteStatus;
-import pt.isep.sidis.airports.flightroutes.services.FlightRouteService;
 
 import java.util.List;
 
@@ -34,13 +38,13 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RequestMapping("/api/flight-routes")
 public class FlightRouteController {
 
-    private final FlightRouteService flightRouteService;
+    private final FlightRouteQueryService flightRouteQueryService;
+    private final FlightRouteCommandHandler flightRouteCommandHandler;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private pt.isep.sidis.airports.cqrs.commands.FlightRouteCommandHandler flightRouteCommandHandler;
-
-    public FlightRouteController(FlightRouteService flightRouteService) {
-        this.flightRouteService = flightRouteService;
+    public FlightRouteController(FlightRouteQueryService flightRouteQueryService,
+                                 FlightRouteCommandHandler flightRouteCommandHandler) {
+        this.flightRouteQueryService = flightRouteQueryService;
+        this.flightRouteCommandHandler = flightRouteCommandHandler;
     }
 
     @Operation(summary = "Create a flight route",
@@ -55,9 +59,7 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC')")
     @PostMapping
     public ResponseEntity<FlightRouteResponseDTO> createRoute(@Valid @RequestBody CreateFlightRouteDTO dto) {
-        FlightRouteResponseDTO response = (flightRouteCommandHandler != null)
-                ? flightRouteCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.CreateFlightRouteCommand(dto))
-                : flightRouteService.createFlightRoute(dto);
+        FlightRouteResponseDTO response = flightRouteCommandHandler.handle(new CreateFlightRouteCommand(dto));
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
@@ -73,7 +75,7 @@ public class FlightRouteController {
     @GetMapping("/{id}/history")
     public ResponseEntity<List<FlightRouteResponseDTO.RouteHistoryDTO>> getRouteHistory(
             @PathVariable("id") String routeId) {
-        return ResponseEntity.ok(flightRouteService.getRouteHistory(routeId));
+        return ResponseEntity.ok(flightRouteQueryService.getRouteHistory(routeId));
     }
 
     @Operation(summary = "Deactivate a flight route",
@@ -88,9 +90,9 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC') or hasRole('BACKOFFICE_OPERATOR')")
     @PatchMapping("/{id}/deactivate")
     public ResponseEntity<FlightRouteResponseDTO> deactivateRoute(@PathVariable("id") String routeId) {
-        FlightRouteResponseDTO response = (flightRouteCommandHandler != null)
-                ? flightRouteCommandHandler.handle(new pt.isep.sidis.airports.cqrs.commands.DeactivateFlightRouteCommand(routeId, "Deactivated by operator"))
-                : flightRouteService.deactivateRoute(routeId);
+        FlightRouteResponseDTO response = flightRouteCommandHandler.handle(
+                new DeactivateFlightRouteCommand(routeId, "Deactivated by operator")
+        );
         return ResponseEntity.ok(response);
     }
 
@@ -109,7 +111,8 @@ public class FlightRouteController {
     public ResponseEntity<FlightRouteResponseDTO> updateRoute(
             @PathVariable("id") String routeId,
             @Valid @RequestBody UpdateFlightRouteDTO dto) {
-        return ResponseEntity.ok(flightRouteService.updateRoute(routeId, dto));
+        FlightRouteResponseDTO updated = flightRouteCommandHandler.handle(new UpdateFlightRouteCommand(routeId, dto));
+        return ResponseEntity.ok(updated);
     }
 
     @Operation(summary = "Get a flight route by ID",
@@ -123,7 +126,7 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC')")
     @GetMapping("/{id}")
     public ResponseEntity<FlightRouteResponseDTO> getRouteById(@PathVariable("id") String routeId) {
-        return ResponseEntity.ok(flightRouteService.getRouteById(routeId));
+        return ResponseEntity.ok(flightRouteQueryService.getRouteById(routeId));
     }
 
     @Operation(summary = "Search and list flight routes (US114 & US214)",
@@ -152,9 +155,9 @@ public class FlightRouteController {
 
         if (sortBy != null) {
             RouteStatus filterStatus = status != null ? status : RouteStatus.ACTIVE;
-            responsePage = flightRouteService.getActiveRoutesSorted(filterStatus, sortBy, pageable);
+            responsePage = flightRouteQueryService.getActiveRoutesSorted(filterStatus, sortBy, pageable);
         } else {
-            responsePage = flightRouteService.searchRoutes(originIata, destinationIata, pageable);
+            responsePage = flightRouteQueryService.searchRoutes(originIata, destinationIata, pageable);
         }
 
         return ResponseEntity.ok(pagedAssembler.toModel(responsePage));
@@ -170,17 +173,15 @@ public class FlightRouteController {
     @PreAuthorize("hasRole('ATCC')")
     @GetMapping("/network/total-distance")
     public ResponseEntity<NetworkDistanceResponseDTO> getTotalNetworkDistance() {
-        
-        Double totalDistance = flightRouteService.getTotalNetworkDistance();
+
+        Double totalDistance = flightRouteQueryService.getTotalNetworkDistance();
         NetworkDistanceResponseDTO response = new NetworkDistanceResponseDTO(totalDistance);
 
         response.add(linkTo(methodOn(FlightRouteController.class).getTotalNetworkDistance()).withSelfRel());
-        
         response.add(linkTo(FlightRouteController.class).withRel("all_routes"));
 
         return ResponseEntity.ok(response);
     }
-
 
     @Operation(summary = "US216: Search for alternative routes",
                description = "Finds alternative combinations of active flight routes connecting two airports via layovers. Defaults to fewest-stops algorithm. Requires ATCC role.")
@@ -202,16 +203,14 @@ public class FlightRouteController {
             throw new IllegalArgumentException("Origin and destination must be different.");
         }
 
-        List<AlternativeRouteResponseDTO> alternatives = flightRouteService.findAlternativeRoutes(originIata, destinationIata, algorithm);
-        
+        List<AlternativeRouteResponseDTO> alternatives = flightRouteQueryService.findAlternativeRoutes(originIata, destinationIata, algorithm);
+
         alternatives.forEach(alt -> alt.add(
                 linkTo(methodOn(FlightRouteController.class).getAlternativeRoutes(originIata, destinationIata, algorithm)).withSelfRel()
         ));
 
         return ResponseEntity.ok(alternatives);
     }
-
-
 
     @Operation(summary = "Bonus US228: Export route network data",
             description = "Exports all active routes in GeoJSON or KML format. Requires BACKOFFICE_OPERATOR role.")
@@ -227,13 +226,11 @@ public class FlightRouteController {
         return switch (format.toLowerCase()) {
             case "geojson" -> ResponseEntity.ok()
                     .contentType(org.springframework.http.MediaType.parseMediaType("application/geo+json"))
-                    .body(flightRouteService.exportGeoJson());
+                    .body(flightRouteQueryService.exportGeoJson());
             case "kml" -> ResponseEntity.ok()
                     .contentType(org.springframework.http.MediaType.parseMediaType("application/vnd.google-earth.kml+xml"))
-                    .body(flightRouteService.exportKml());
+                    .body(flightRouteQueryService.exportKml());
             default -> ResponseEntity.badRequest().body("Invalid format. Use 'geojson' or 'kml'.");
         };
     }
-
-    
 }
