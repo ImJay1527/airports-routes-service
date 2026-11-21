@@ -95,4 +95,69 @@ class CqrsEventReplicationTest {
         assertTrue(replicated.isPresent());
         assertEquals("Santa Maria Airport", replicated.get().getName());
     }
+
+    @Test
+    void testReplicaEventListenerRejectsMalformedJsonDirectlyToDlq() {
+        // Point 3: Malformed JSON must throw AmqpRejectAndDontRequeueException (goes straight to DLQ)
+        byte[] malformedBody = "{ invalid_json: true ".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Message message = new Message(malformedBody);
+
+        assertThrows(org.springframework.amqp.AmqpRejectAndDontRequeueException.class, () ->
+                replicaEventListener.handleMessage(message, "airport.created")
+        );
+    }
+
+    @Test
+    void testReplicaEventListenerFailsOnInvalidAirportUpdatedHours() throws Exception {
+        // Ensure SMA airport exists first
+        AirportCreatedEvent peerEvent = new AirportCreatedEvent(
+                "instance2", "SMA", "Santa Maria Airport", "Vila do Porto", "Portugal", "OPERATIONAL", List.of("A320neo")
+        );
+        replicaEventListener.handleMessage(new Message(objectMapper.writeValueAsBytes(peerEvent)), "airport.created");
+
+        // Point 2: airport.updated with invalid hours must NOT be silently swallowed; it must throw so it triggers DLQ
+        pt.isep.sidis.airports.events.AirportUpdatedEvent invalidHoursEvent =
+                new pt.isep.sidis.airports.events.AirportUpdatedEvent("instance2", "SMA", "Santa Maria Airport",
+                        "Vila do Porto", "Portugal", "OPERATIONAL", List.of(), "25:99", "18:00", List.of());
+
+        Message message = new Message(objectMapper.writeValueAsBytes(invalidHoursEvent));
+
+        assertThrows(RuntimeException.class, () ->
+                replicaEventListener.handleMessage(message, "airport.updated")
+        );
+    }
+
+    @Autowired
+    private pt.isep.sidis.airports.unicorns.services.UnicornMoodQueryService unicornMoodQueryService;
+
+    @Test
+    void testUnicornMoodProjectionUpdatesOnAircraftStatusChanged() throws Exception {
+        // Point 4: aircraft.created records registration and model
+        String createJson = """
+                {
+                  "registration": "CS-TNA",
+                  "modelCode": "A320neo",
+                  "status": "AVAILABLE"
+                }
+                """;
+        replicaEventListener.handleMessage(new Message(createJson.getBytes()), "aircraft.created");
+
+        pt.isep.sidis.airports.unicorns.dto.UnicornMoodDTO dto = unicornMoodQueryService.getMoodByModel("CS-TNA").orElseThrow();
+        assertEquals("ECSTATIC", dto.getMood());
+        assertTrue(dto.getSparklesEnabled());
+
+        // Now test aircraft.status.changed with MAINTENANCE
+        String maintJson = """
+                {
+                  "registration": "CS-TNA",
+                  "modelCode": "A320neo",
+                  "status": "UNDER_MAINTENANCE"
+                }
+                """;
+        replicaEventListener.handleMessage(new Message(maintJson.getBytes()), "aircraft.status.changed");
+
+        pt.isep.sidis.airports.unicorns.dto.UnicornMoodDTO maintDto = unicornMoodQueryService.getMoodByModel("CS-TNA").orElseThrow();
+        assertEquals("MAINTENANCE_BLUES", maintDto.getMood());
+        assertFalse(maintDto.getSparklesEnabled());
+    }
 }

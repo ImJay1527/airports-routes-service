@@ -73,7 +73,28 @@ public class RabbitMQConfig {
 
     @Bean
     public Binding bindingAircraftEvents(Queue replicaQueue, TopicExchange aisafeExchange) {
-        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("aircraft.created");
+        return BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("aircraft.#");
+    }
+
+    @Bean
+    public org.springframework.amqp.rabbit.core.RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
+        org.springframework.amqp.rabbit.core.RabbitAdmin admin = new org.springframework.amqp.rabbit.core.RabbitAdmin(connectionFactory);
+        admin.setAutoStartup(true);
+        return admin;
+    }
+
+    @Bean
+    public org.springframework.boot.ApplicationRunner unbindLegacyBindings(
+            org.springframework.amqp.rabbit.core.RabbitAdmin rabbitAdmin,
+            Queue replicaQueue,
+            TopicExchange aisafeExchange) {
+        return args -> {
+            try {
+                // Ensure legacy flight.# binding from Assignment 1 is removed from the broker queue
+                rabbitAdmin.removeBinding(BindingBuilder.bind(replicaQueue).to(aisafeExchange).with("flight.#"));
+            } catch (Exception ignored) {
+            }
+        };
     }
 
     @Bean

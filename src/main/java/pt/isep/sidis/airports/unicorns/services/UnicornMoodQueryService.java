@@ -126,7 +126,12 @@ public class UnicornMoodQueryService {
     public Optional<UnicornMoodDTO> getMoodByModel(String model) {
         if (model == null || model.isBlank()) return Optional.empty();
         return moodRepository.findById(model)
-                .or(() -> moodRepository.findByRegistrationIgnoreCase(model))
+                .or(() -> moodRepository.findAll().stream()
+                        .filter(e -> e.getRegistration() != null &&
+                                Arrays.stream(e.getRegistration().split(","))
+                                        .map(String::trim)
+                                        .anyMatch(r -> r.equalsIgnoreCase(model.trim())))
+                        .findFirst())
                 .map(UnicornMoodEntity::toDTO);
     }
 
@@ -142,21 +147,75 @@ public class UnicornMoodQueryService {
                         .build()
         );
 
-        entity.setRegistration(registration);
-        boolean underMaint = "UNDER_MAINTENANCE".equalsIgnoreCase(status) || "INACTIVE".equalsIgnoreCase(status);
+        if (registration != null && !registration.isBlank()) {
+            String current = entity.getRegistration();
+            if (current == null || current.isBlank()) {
+                entity.setRegistration(registration);
+            } else if (!current.contains(registration)) {
+                entity.setRegistration(current + ", " + registration);
+            }
+        }
+
+        boolean underMaint = status != null && (
+                status.equalsIgnoreCase("UNDER_MAINTENANCE")
+                || status.equalsIgnoreCase("INACTIVE")
+                || status.equalsIgnoreCase("MAINTENANCE"));
+
         if (underMaint) {
             entity.setMood("MAINTENANCE_BLUES");
             entity.setVibeScore(5.0);
             entity.setSparklesEnabled(false);
-            entity.setStatusMessage("Real aircraft " + registration + " (" + modelCode + ") undergoing TLC.");
+            entity.setStatusMessage("Real aircraft " + (registration != null ? registration : modelCode) + " undergoing TLC.");
         } else {
             entity.setMood("ECSTATIC");
             entity.setVibeScore(9.8);
             entity.setSparklesEnabled(true);
-            entity.setStatusMessage("Real aircraft " + registration + " (" + modelCode + ") airworthy and flying.");
+            entity.setStatusMessage("Real aircraft " + (registration != null ? registration : modelCode) + " airworthy and flying.");
         }
         entity.setLastUpdated(Instant.now());
         moodRepository.save(entity);
+    }
+
+    @Transactional
+    public void recordAircraftStatusChanged(String registration, String modelCode, String status) {
+        log.info("Projecting unicorn mood update from aircraft status change: {} ({}) -> {}", registration, modelCode, status);
+        if (status == null || status.isBlank()) return;
+
+        UnicornMoodEntity entity = null;
+        if (modelCode != null && !modelCode.isBlank()) {
+            entity = moodRepository.findById(modelCode).orElse(null);
+        }
+        if (entity == null && registration != null && !registration.isBlank()) {
+            entity = moodRepository.findAll().stream()
+                    .filter(e -> e.getRegistration() != null &&
+                            Arrays.stream(e.getRegistration().split(","))
+                                    .map(String::trim)
+                                    .anyMatch(r -> r.equalsIgnoreCase(registration.trim())))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (entity != null) {
+            boolean underMaint = status.toUpperCase().contains("MAINT")
+                    || status.toUpperCase().contains("GROUND")
+                    || status.toUpperCase().contains("INACT");
+
+            if (underMaint) {
+                entity.setMood("MAINTENANCE_BLUES");
+                entity.setVibeScore(4.5);
+                entity.setSparklesEnabled(false);
+                entity.setStatusMessage("Real aircraft " + (registration != null ? registration : entity.getAirplaneModel())
+                        + " entering maintenance (" + status + ").");
+            } else {
+                entity.setMood("ECSTATIC");
+                entity.setVibeScore(9.8);
+                entity.setSparklesEnabled(true);
+                entity.setStatusMessage("Real aircraft " + (registration != null ? registration : entity.getAirplaneModel())
+                        + " airworthy and active (" + status + ").");
+            }
+            entity.setLastUpdated(Instant.now());
+            moodRepository.save(entity);
+        }
     }
 
     @Transactional

@@ -1,9 +1,11 @@
 package pt.isep.sidis.airports.cqrs.listeners;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
@@ -119,14 +121,30 @@ public class ReplicaEventListener {
                             : (root.has("modelName") && !root.get("modelName").isNull() ? root.get("modelName").asText() : null);
                     String status = root.has("status") && !root.get("status").isNull()
                             ? root.get("status").asText() : "AVAILABLE";
-                    if (reg != null && model != null) {
+                    if (model != null) {
                         unicornMoodQueryService.recordRealAircraft(reg, model, status);
                     }
+                }
+                case "aircraft.status.changed", "aircraft.status" -> {
+                    String reg = root.has("registration") && !root.get("registration").isNull()
+                            ? root.get("registration").asText() : null;
+                    String model = root.has("modelCode") && !root.get("modelCode").isNull()
+                            ? root.get("modelCode").asText()
+                            : (root.has("modelName") && !root.get("modelName").isNull() ? root.get("modelName").asText() : null);
+                    String status = root.has("status") && !root.get("status").isNull()
+                            ? root.get("status").asText()
+                            : (root.has("newStatus") && !root.get("newStatus").isNull() ? root.get("newStatus").asText() : "AVAILABLE");
+                    unicornMoodQueryService.recordAircraftStatusChanged(reg, model, status);
                 }
                 default -> {
                     log.debug("Ignoring unhandled or peer routing key '{}'", rk);
                 }
             }
+        } catch (JsonProcessingException e) {
+            // Point 3: Malformed JSON will never succeed; reject directly to DLQ without retries
+            log.error("Malformed JSON payload for routing key '{}': {}. Rejecting immediately to DLQ without retry.",
+                    rk, e.getMessage());
+            throw new AmqpRejectAndDontRequeueException("Malformed JSON payload for " + rk, e);
         } catch (IllegalStateException e) {
             // Propagate to trigger Spring AMQP retry policy (max 3 attempts) then DLQ
             log.warn("Transient replication prerequisite missing for routing key '{}': {}. Triggering retry.",
@@ -206,22 +224,18 @@ public class ReplicaEventListener {
                         + " not found locally for detail update; triggering AMQP retry / DLQ"));
 
         if (aue.getOpeningTime() != null && aue.getClosingTime() != null) {
-            try {
-                OperationalHours hours = new OperationalHours(
-                        LocalTime.parse(aue.getOpeningTime()),
-                        LocalTime.parse(aue.getClosingTime())
-                );
-                List<Contact> contacts = new ArrayList<>();
-                if (aue.getContacts() != null) {
-                    for (AirportUpdatedEvent.ContactEntry ce : aue.getContacts()) {
-                        ContactType type = (ce.getType() != null) ? ContactType.valueOf(ce.getType()) : ContactType.PHONE;
-                        contacts.add(new Contact(ce.getValue(), ce.getDepartment(), type));
-                    }
+            OperationalHours hours = new OperationalHours(
+                    LocalTime.parse(aue.getOpeningTime()),
+                    LocalTime.parse(aue.getClosingTime())
+            );
+            List<Contact> contacts = new ArrayList<>();
+            if (aue.getContacts() != null) {
+                for (AirportUpdatedEvent.ContactEntry ce : aue.getContacts()) {
+                    ContactType type = (ce.getType() != null) ? ContactType.valueOf(ce.getType()) : ContactType.PHONE;
+                    contacts.add(new Contact(ce.getValue(), ce.getDepartment(), type));
                 }
-                airport.updateDetails(hours, contacts);
-            } catch (Exception e) {
-                log.warn("Failed to parse operational details for airport {}: {}", aue.getIataCode(), e.getMessage());
             }
+            airport.updateDetails(hours, contacts);
         }
 
         if (aue.getCertifiedModels() != null) {
