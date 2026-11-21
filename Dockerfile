@@ -2,11 +2,9 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY pom.xml .
+RUN mvn -B dependency:go-offline
 COPY src ./src
-COPY target ./target
-RUN if [ ! -f target/airports-routes-service-*.jar ]; then \
-        mvn -B clean package -DskipTests; \
-    fi
+RUN mvn -B clean package -DskipTests
 
 # ---- run stage ----
 FROM eclipse-temurin:21-jre

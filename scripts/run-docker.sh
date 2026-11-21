@@ -64,13 +64,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if compgen -G "target/airports-routes-service-*.jar" > /dev/null; then
-  echo "Using existing target JAR artifact."
-else
-  echo "Building Maven package first..."
-  ./mvnw clean package -DskipTests
-fi
-
 echo "Starting $N instance(s) with ${FILE_ARGS[*]}..."
 $COMPOSE_CMD "${FILE_ARGS[@]}" up --build -d
 
