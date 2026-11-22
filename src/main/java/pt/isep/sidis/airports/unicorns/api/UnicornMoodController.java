@@ -47,4 +47,16 @@ public class UnicornMoodController {
 
         return ResponseEntity.ok(unicornMoodQueryService.getAllMoods());
     }
+
+    @GetMapping("/{model}")
+    @Operation(summary = "Get Airplane Mood by Model or Registration (Path Param)",
+               description = "Returns mood details for a specific airplane model or registration.")
+    public ResponseEntity<UnicornMoodDTO> getAirplaneMoodByPath(
+            @Parameter(description = "Airplane model code (e.g., A320neo) or tail registration (e.g., CS-TNA)")
+            @PathVariable String model) {
+
+        return unicornMoodQueryService.getMoodByModel(model)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 }

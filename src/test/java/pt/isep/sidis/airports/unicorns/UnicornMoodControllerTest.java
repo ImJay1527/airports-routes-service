@@ -40,6 +40,15 @@ class UnicornMoodControllerTest {
     }
 
     @Test
+    void testGetAirplaneMoodByPath() throws Exception {
+        mockMvc.perform(get("/api/v2/unicorns/A320neo"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.airplaneModel").value("A320neo"))
+                .andExpect(jsonPath("$.mood").value("ECSTATIC"))
+                .andExpect(jsonPath("$.sparklesEnabled").value(true));
+    }
+
+    @Test
     void testGetAirplaneMoodNonExistentModel() throws Exception {
         mockMvc.perform(get("/api/v2/unicorns").param("model", "NON_EXISTENT_PLANE"))
                 .andExpect(status().isNotFound());
