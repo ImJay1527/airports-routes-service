@@ -217,22 +217,22 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# SCENARIO 8: Assignment 2 Mandatory CQRS Unicorn Mood Endpoint
+# SCENARIO 8: Assignment 2 CQRS Airport Query Projection
 # ------------------------------------------------------------------------------
-echo -e "${CYAN}${BOLD}[Scenario 8] Assignment 2 CQRS Airplane Mood Projection (/api/v2/unicorns)${RESET}"
-echo "  Goal: Query mandatory mock endpoint returning airplane mood statuses in JSON."
-echo "  Request: GET $INST1/api/v2/unicorns"
-RESP=$(curl -s $CURL_OPT -i "$INST1/api/v2/unicorns")
+echo -e "${CYAN}${BOLD}[Scenario 8] Assignment 2 CQRS Query Projection (Get Airport Details by IATA)${RESET}"
+echo "  Goal: Query specific airport using CQRS AirportQueryService read model."
+echo "  Request: GET $INST1/internal/airports/LIS"
+RESP=$(curl -s $CURL_OPT -i -H "Authorization: Bearer $SERVICE_TOKEN" "$INST1/internal/airports/LIS")
 HTTP_CODE=$(echo "$RESP" | head -n 1 | awk '{print $2}')
-HAS_MOOD=$(echo "$RESP" | grep -c '"mood"' || true)
+HAS_LIS=$(echo "$RESP" | grep -c 'LIS' || true)
 
 echo "  Status Code : $HTTP_CODE"
-echo "  Has mood JSON : $HAS_MOOD"
+echo "  Has Airport : $HAS_LIS"
 
-if [[ "$HTTP_CODE" == "200" && "$HAS_MOOD" -gt 0 ]]; then
-  test_passed "Airplane mood statuses returned successfully via CQRS query projection."
+if [[ "$HTTP_CODE" == "200" && "$HAS_LIS" -gt 0 ]]; then
+  test_passed "Airport LIS retrieved successfully via CQRS query projection."
 else
-  echo -e "  ${RED}FAIL - expected HTTP 200 with mood status JSON${RESET}"
+  echo -e "  ${RED}FAIL - expected HTTP 200 with airport LIS details${RESET}"
 fi
 
 echo -e "${BOLD}${GREEN}"

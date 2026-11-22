@@ -126,38 +126,4 @@ class CqrsEventReplicationTest {
                 replicaEventListener.handleMessage(message, "airport.updated")
         );
     }
-
-    @Autowired
-    private pt.isep.sidis.airports.unicorns.services.UnicornMoodQueryService unicornMoodQueryService;
-
-    @Test
-    void testUnicornMoodProjectionUpdatesOnAircraftStatusChanged() throws Exception {
-        // Point 4: aircraft.created records registration and model
-        String createJson = """
-                {
-                  "registration": "CS-TNA",
-                  "modelCode": "A320neo",
-                  "status": "AVAILABLE"
-                }
-                """;
-        replicaEventListener.handleMessage(new Message(createJson.getBytes()), "aircraft.created");
-
-        pt.isep.sidis.airports.unicorns.dto.UnicornMoodDTO dto = unicornMoodQueryService.getMoodByModel("CS-TNA").orElseThrow();
-        assertEquals("ECSTATIC", dto.getMood());
-        assertTrue(dto.getSparklesEnabled());
-
-        // Now test aircraft.status.changed with MAINTENANCE
-        String maintJson = """
-                {
-                  "registration": "CS-TNA",
-                  "modelCode": "A320neo",
-                  "status": "UNDER_MAINTENANCE"
-                }
-                """;
-        replicaEventListener.handleMessage(new Message(maintJson.getBytes()), "aircraft.status.changed");
-
-        pt.isep.sidis.airports.unicorns.dto.UnicornMoodDTO maintDto = unicornMoodQueryService.getMoodByModel("CS-TNA").orElseThrow();
-        assertEquals("MAINTENANCE_BLUES", maintDto.getMood());
-        assertFalse(maintDto.getSparklesEnabled());
-    }
 }

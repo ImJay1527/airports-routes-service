@@ -462,13 +462,13 @@ The solution is verified by a suite of automated unit, integration, and security
 | `plainHttpClientFailsHandshakeOnHttpsPort` | Ensure untrusted or non-TLS requests are rejected. | Untrusted HttpClient handshake failure assertion. |
 
 ### Verification Artifacts
-1. **JUnit Test Suite**: 19/19 passing (`./mvnw test`), including Transactional Outbox integration, CQRS event replication, and persistent unicorn query tests.
-2. **Interactive CLI Cluster Demonstration**: `./scripts/demo-cluster.sh` (HTTP) and `./scripts/demo-cluster.sh --tls` (HTTPS TLS 1.3), verifying all 8 scenarios including CQRS unicorn moods.
-3. **Newman / Postman Suite**: 32/32 assertions passing across `postman/airports-routes.postman_collection.json` covering public API, internal forwarding, security, and the mandatory `/api/v2/unicorns` endpoint.
+1. **JUnit Test Suite**: Passing automated test suite (`./mvnw test`), including Transactional Outbox integration, CQRS event replication, Testcontainers real RabbitMQ broker integration, and TLS 1.3 enforcement.
+2. **Interactive CLI Cluster Demonstration**: `./scripts/demo-cluster.sh` (HTTP) and `./scripts/demo-cluster.sh --tls` (HTTPS TLS 1.3), verifying all 8 live distributed scenarios.
+3. **Newman / Postman Suite**: Passing assertions across `postman/airports-routes.postman_collection.json` covering public API, internal forwarding, security, and CQRS queries.
 
 ---
 
-## 9. Assignment 2: CQRS, Asynchronous AMQP Broker (RabbitMQ), Transactional Outbox & Unicorns Integration
+## 9. Assignment 2: CQRS, Asynchronous AMQP Broker (RabbitMQ) & Transactional Outbox
 
 In Assignment 2, the `airports-routes-service` enhances its architecture from synchronous HTTP-only forwarding to an advanced distributed system powered by **Command-Query Responsibility Segregation (CQRS)**, **Transactional Outbox Pattern**, and **Asynchronous Event-Driven Messaging (AMQP / RabbitMQ)**.
 
@@ -477,12 +477,12 @@ To eliminate bottlenecks and optimize read and write operations independently:
 
 1. **Command Side (Write Model)**:
    - Handlers: `AirportCommandHandler`, `FlightRouteCommandHandler`.
-   - Domain Commands: `CreateAirportCommand`, `UpdateAirportStatusCommand`, `AddAirportCertificationCommand`, `UpdateAirportDetailsCommand`, `CreateFlightRouteCommand`, `UpdateFlightRouteCommand`, `DeactivateFlightRouteCommand`.
+   - Domain Commands: `CreateAirportCommand`, `UpdateAirportStatusCommand`, `AddAirportCertificationCommand`, `UpdateAirportDetailsCommand`, `ImportAirportsCommand`, `CreateFlightRouteCommand`, `UpdateFlightRouteCommand`, `DeactivateFlightRouteCommand`.
    - Responsibilities: Validates business invariants within the aggregate boundary, persists to PostgreSQL with strict optimistic locking (`@Version`), and enqueues domain events to the Transactional Outbox table (`outbox_events`).
 2. **Query Side (Read Model / Projections)**:
-   - Services: `AirportQueryService`, `FlightRouteQueryService`, `UnicornMoodQueryService`.
+   - Services: `AirportQueryService`, `FlightRouteQueryService`.
    - Responsibilities: Serves public and internal queries without write locks, providing low-latency projections, pagination, and HATEOAS HAL representations.
-   - Controllers (`AirportController`, `FlightRouteController`, `UnicornMoodController`) delegate 100% of read queries to the query services.
+   - Controllers (`AirportController`, `FlightRouteController`) delegate 100% of read queries to the query services.
 
 ### 9.2 Transactional Outbox Pattern & Resilience
 To prevent phantom events on transaction rollback and eliminate event loss during message broker downtime:
@@ -498,15 +498,6 @@ To prevent phantom events on transaction rollback and eliminate event loss durin
   - `x-dead-letter-routing-key: airports.events.dlq`
   - `x-max-length: 1000`
   - `x-message-ttl: 86400000` (24h)
-  - Routing bindings: `airport.#`, `route.#`, `flight.#`.
+  - Routing bindings: `airport.#`, `route.#`.
 * **Retry & Poison Message Protection**: `spring.rabbitmq.listener.simple.retry.max-attempts=3` and `default-requeue-rejected=false`. Processing exceptions bubble up to trigger retries before routing to DLQ.
-* **Out-of-Order Deduplication**: `ReplicaEventListener` enforces timestamp ordering (`occurredAt`) to prevent delayed events from overwriting fresh state.
-
-### 9.4 Mandatory Mock Endpoint: `/api/v2/unicorns` & CQRS Integration
-As mandated by Assignment 2 guidelines, the service provides the mock endpoint:
-`GET /api/v2/unicorns` (with optional `?model=` filter).
-
-#### Integration with the CQRS Pattern:
-- **Persistent Materialized Query Projection**: Persisted in the dedicated database table `unicorn_airplane_moods` via `UnicornMoodEntity` and `UnicornMoodRepository`, ensuring projections survive service restarts.
-- **Computed from Domain Reality**: Aircraft moods (`ECSTATIC`, `HAPPY`, `MAINTENANCE_BLUES`) and vibe scores are calculated dynamically based on real airport certifications, operational statuses, and active routes.
-- **Zero Write Contention**: Querying `/api/v2/unicorns` provides $O(1)$ read performance with zero contention against write-heavy flight route and airport command transactions.
+* **Out-of-Order Deduplication**: `ReplicaEventListener` enforces timestamp ordering (`occurredAt`) against the database timestamp to prevent delayed events from overwriting fresh state.

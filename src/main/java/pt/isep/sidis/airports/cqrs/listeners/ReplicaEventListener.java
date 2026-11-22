@@ -20,7 +20,6 @@ import pt.isep.sidis.airports.flightroutes.domain.FlightRoute;
 import pt.isep.sidis.airports.flightroutes.domain.RouteId;
 import pt.isep.sidis.airports.flightroutes.domain.RouteRequirement;
 import pt.isep.sidis.airports.flightroutes.repositories.FlightRouteRepository;
-import pt.isep.sidis.airports.unicorns.services.UnicornMoodQueryService;
 
 import java.time.Instant;
 import java.time.LocalTime;
@@ -45,18 +44,15 @@ public class ReplicaEventListener {
     private final AirportRepository airportRepository;
     private final FlightRouteRepository flightRouteRepository;
     private final ClusterConfig clusterConfig;
-    private final UnicornMoodQueryService unicornMoodQueryService;
     private final ObjectMapper objectMapper;
 
     public ReplicaEventListener(AirportRepository airportRepository,
                                 FlightRouteRepository flightRouteRepository,
                                 ClusterConfig clusterConfig,
-                                UnicornMoodQueryService unicornMoodQueryService,
                                 ObjectMapper objectMapper) {
         this.airportRepository = airportRepository;
         this.flightRouteRepository = flightRouteRepository;
         this.clusterConfig = clusterConfig;
-        this.unicornMoodQueryService = unicornMoodQueryService;
         this.objectMapper = objectMapper;
     }
 
@@ -113,28 +109,8 @@ public class ReplicaEventListener {
                     FlightRouteDeactivatedEvent frde = objectMapper.readValue(body, FlightRouteDeactivatedEvent.class);
                     handleFlightRouteDeactivated(frde);
                 }
-                case "aircraft.created" -> {
-                    String reg = root.has("registration") && !root.get("registration").isNull()
-                            ? root.get("registration").asText() : null;
-                    String model = root.has("modelCode") && !root.get("modelCode").isNull()
-                            ? root.get("modelCode").asText()
-                            : (root.has("modelName") && !root.get("modelName").isNull() ? root.get("modelName").asText() : null);
-                    String status = root.has("status") && !root.get("status").isNull()
-                            ? root.get("status").asText() : "AVAILABLE";
-                    if (model != null) {
-                        unicornMoodQueryService.recordRealAircraft(reg, model, status);
-                    }
-                }
-                case "aircraft.status.changed", "aircraft.status" -> {
-                    String reg = root.has("registration") && !root.get("registration").isNull()
-                            ? root.get("registration").asText() : null;
-                    String model = root.has("modelCode") && !root.get("modelCode").isNull()
-                            ? root.get("modelCode").asText()
-                            : (root.has("modelName") && !root.get("modelName").isNull() ? root.get("modelName").asText() : null);
-                    String status = root.has("status") && !root.get("status").isNull()
-                            ? root.get("status").asText()
-                            : (root.has("newStatus") && !root.get("newStatus").isNull() ? root.get("newStatus").asText() : "AVAILABLE");
-                    unicornMoodQueryService.recordAircraftStatusChanged(reg, model, status);
+                case "aircraft.created", "aircraft.status.changed", "aircraft.status" -> {
+                    log.debug("Received aircraft domain event with routing key '{}' - acknowledged.", rk);
                 }
                 default -> {
                     log.debug("Ignoring unhandled or peer routing key '{}'", rk);
@@ -173,8 +149,6 @@ public class ReplicaEventListener {
         }
         airportRepository.save(airport);
         log.info("Asynchronously replicated airport {} into local database via RabbitMQ.", ace.getIataCode());
-
-        unicornMoodQueryService.recordAirportStatus(ace.getIataCode(), ace.getStatus());
     }
 
     private void handleAirportStatusUpdated(AirportStatusUpdatedEvent asue) {
@@ -198,8 +172,6 @@ public class ReplicaEventListener {
             log.info("Asynchronously updated status of airport {} to {} (timestamp: {}) via RabbitMQ.",
                     asue.getIataCode(), asue.getNewStatus(), eventTime);
         }
-
-        unicornMoodQueryService.recordAirportStatus(asue.getIataCode(), asue.getNewStatus());
     }
 
     private void handleAirportCertificationAdded(AirportCertificationAddedEvent acae) {
@@ -210,7 +182,6 @@ public class ReplicaEventListener {
         if (acae.getCertifiedModels() != null) {
             for (String model : acae.getCertifiedModels()) {
                 airport.addCertification(model);
-                unicornMoodQueryService.recordCertification(acae.getIataCode(), model);
             }
             airportRepository.save(airport);
             log.info("Asynchronously updated certifications for airport {} via RabbitMQ: {}",
@@ -274,8 +245,6 @@ public class ReplicaEventListener {
 
         flightRouteRepository.save(route);
         log.info("Asynchronously replicated route {} into local database via RabbitMQ.", frce.getRouteId());
-
-        unicornMoodQueryService.recordRouteActivity(frce.getRouteId(), frce.getOriginIata(), frce.getDestinationIata());
     }
 
     private void handleFlightRouteUpdated(FlightRouteUpdatedEvent frue) {

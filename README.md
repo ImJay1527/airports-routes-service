@@ -49,7 +49,7 @@ export JAVA_HOME="/home/afonso/Downloads/idea-IU-262.10968.63/jbr" && export PAT
   export JAVA_HOME="/home/afonso/Downloads/idea-IU-262.10968.63/jbr" && export PATH="$JAVA_HOME/bin:$PATH"
   ./mvnw test
   ```
-  Includes unit tests, domain tests, peer forwarding mock tests, `TlsConfigurationIntegrationTest` validating TLS 1.3 protocol enforcement, `OutboxIntegrationTest` verifying Transactional Outbox persistence and resilience, `CqrsEventReplicationTest` testing async AMQP RabbitMQ synchronization, and `UnicornMoodControllerTest`.
+  Includes unit tests, domain tests, peer forwarding mock tests, `TlsConfigurationIntegrationTest` validating TLS 1.3 protocol enforcement, `OutboxIntegrationTest` verifying Transactional Outbox persistence and resilience, `RabbitMQRealBrokerIntegrationTest` using Testcontainers, and `CqrsEventReplicationTest` testing async AMQP RabbitMQ synchronization.
 
 - **Live Cluster Demonstration Script**:
   ```bash
@@ -61,14 +61,13 @@ export JAVA_HOME="/home/afonso/Downloads/idea-IU-262.10968.63/jbr" && export PAT
   - Collection: `postman/airports-routes.postman_collection.json`
   - Environment (HTTP): `postman/local.postman_environment.json`
   - Environment (HTTPS): `postman/local-https.postman_environment.json`
-  - Tests local hits, peer forwarding, loop prevention, TLS handshakes, role-based security boundaries, and Folder 6: Sprint 2 CQRS & `/api/v2/unicorns`.
+  - Tests local hits, peer forwarding, loop prevention, TLS handshakes, role-based security boundaries, and Folder 6: Sprint 2 CQRS Queries.
 
 ---
 
 ## 4. Assignment 2 (Sprint 2) Architecture Features
 
-- **CQRS Pattern**: Segregated Write Model (`AirportCommandHandler`, `FlightRouteCommandHandler`) with JPA optimistic locking (`@Version`) from Read Model (`AirportQueryService`, `FlightRouteQueryService`, `UnicornMoodQueryService`).
+- **CQRS Pattern**: Segregated Write Model (`AirportCommandHandler`, `FlightRouteCommandHandler`) with JPA optimistic locking (`@Version`) from Read Model (`AirportQueryService`, `FlightRouteQueryService`).
 - **Transactional Outbox Pattern**: Zero phantom events on rollback and guaranteed at-least-once delivery via `outbox_events` table and asynchronous `OutboxDispatcher` with publisher confirms.
-- **AMQP Message Broker (RabbitMQ)**: Replicas publish `DomainEvent` instances to topic exchange `aisafe.events` (standardized across all 3 microservices) and consume via durable queues (`airports.events.<instanceName>`) with Dead-Letter Exchange (`aisafe.dlx` -> `airports.events.dlq`) and 3-attempt retry policy.
-- **Mandatory Mock Endpoint (`/api/v2/unicorns`)**: Persistent CQRS read projection in table `unicorn_airplane_moods`, dynamically calculated from real airport certifications and active flight routes.
+- **AMQP Message Broker (RabbitMQ)**: Replicas publish `DomainEvent` instances to topic exchange `aisafe.events` (standardized across all microservices) and consume via durable queues (`airports.events.<instanceName>`) with Dead-Letter Exchange (`aisafe.dlx` -> `airports.events.dlq`) and 3-attempt retry policy.
 - **Database-per-Replica**: Independent PostgreSQL databases (`airports-db-1` on port 5432, `airports-db-2` on port 5435).
